@@ -7,9 +7,74 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\DataController;
 
-// ── HEALTH CHECK (Railway) ───────────────────────────────────
+// ── HEALTH CHECK (Railway/ngrok) ──────────────────────────────
 Route::get('health', function () {
     return response()->json(['status' => 'ok', 'app' => 'Sirkulo API', 'time' => now()->toDateTimeString()]);
+});
+
+// ── RESET SALDO PENGGUNA ──────────────────────────────────────
+Route::get('dev/reset-saldo', function (Request $request) {
+    try {
+        $email = $request->query('email');
+        $hapusRiwayat = $request->query('hapus_riwayat', false);
+
+        if ($email) {
+            $user = \App\Models\User::where('email', $email)->first();
+            if (!$user) {
+                return response()->json(['status' => 'gagal', 'pesan' => "User dengan email $email tidak ditemukan."], 404);
+            }
+            $user->update([
+                'saldo_poin' => 0,
+                'total_sampah_kg' => 0,
+            ]);
+
+            if ($hapusRiwayat) {
+                \App\Models\Transaction::where('id_pengguna', $user->id)->delete();
+                \App\Models\Notification::where('id_pengguna', $user->id)->delete();
+            }
+
+            return response()->json([
+                'status' => 'sukses',
+                'pesan' => "Saldo untuk user {$user->nama} ({$user->email}) berhasil di-reset menjadi Rp 0.",
+                'user' => [
+                    'nama' => $user->nama,
+                    'email' => $user->email,
+                    'saldo_poin' => $user->saldo_poin,
+                    'total_sampah_kg' => $user->total_sampah_kg,
+                ]
+            ]);
+        }
+
+        // Reset SEMUA pengguna yang ada di database sekarang
+        $users = \App\Models\User::all();
+        foreach ($users as $u) {
+            $u->saldo_poin = 0;
+            $u->total_sampah_kg = 0;
+            $u->save();
+        }
+
+        // Reset saldo pos mitra jika ada
+        if (\Illuminate\Support\Facades\Schema::hasColumn('mitra', 'saldo_pos')) {
+            \App\Models\Partner::query()->update(['saldo_pos' => 0]);
+        }
+
+        if ($hapusRiwayat) {
+            \App\Models\Transaction::truncate();
+            \App\Models\Notification::truncate();
+        }
+
+        $daftarPengguna = \App\Models\User::select('id', 'nama', 'email', 'peran', 'saldo_poin', 'total_sampah_kg')->get();
+
+        return response()->json([
+            'status' => 'sukses',
+            'pesan' => 'Semua pengguna yang terdaftar di database berhasil di-reset saldonya menjadi Rp 0!',
+            'total_pengguna' => $daftarPengguna->count(),
+            'daftar_pengguna_di_database' => $daftarPengguna,
+            'hapus_riwayat' => $hapusRiwayat ? 'Semua riwayat transaksi & notifikasi juga dibersihkan' : 'Riwayat transaksi tetap disimpan'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'galat' => $e->getMessage()], 500);
+    }
 });
 
 // ── DEV UTILITIES (Untuk verifikasi akun & seeding instan) ────────
