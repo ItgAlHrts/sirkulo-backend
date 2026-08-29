@@ -50,7 +50,7 @@ class TransactionController extends Controller
                     'jenis'           => $request->jenis,
                     'status'          => 'SELESAI',
                     'jumlah_total'    => $request->jumlah_total,
-                    'poin_didapat'    => ($request->jenis === 'SETORAN') ? ($request->poin_didapat ?? $request->jumlah_total) : (-$request->jumlah_total),
+                    'poin_didapat'    => ($request->jenis === 'SETORAN') ? ($request->poin_didapat ?? (int) floor($request->jumlah_total / 100)) : -(int) floor($request->jumlah_total / 100),
                     'nomor_referensi' => $nomor_referensi,
                 ]);
 
@@ -60,8 +60,8 @@ class TransactionController extends Controller
                 } elseif ($request->jenis === 'PENARIKAN') {
                     $pengguna->decrement('saldo', $request->jumlah_total);
                 }
-                // Poin selalu sama dengan saldo rupiah (1 Poin = Rp 1)
-                $pengguna->update(['poin' => $pengguna->saldo]);
+                // Konversi Poin: 1 Poin = Rp 100
+                $pengguna->update(['poin' => (int) floor($pengguna->saldo / 100)]);
 
                 return $trx;
             });
@@ -84,8 +84,8 @@ class TransactionController extends Controller
             } elseif ($trx->jenis === 'PENARIKAN') {
                 $pengguna->increment('saldo', $trx->jumlah_total);
             }
-            // Kembalikan & sinkronkan poin persis sama dengan saldo
-            $pengguna->update(['poin' => $pengguna->saldo]);
+            // Kembalikan & sinkronkan poin (1 Poin = Rp 100)
+            $pengguna->update(['poin' => (int) floor($pengguna->saldo / 100)]);
             $trx->delete();
         });
 

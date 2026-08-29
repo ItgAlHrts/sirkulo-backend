@@ -24,8 +24,8 @@ Route::get('dev/reset-saldo', function (Request $request) {
                 return response()->json(['status' => 'gagal', 'pesan' => "User dengan email $email tidak ditemukan."], 404);
             }
             $user->update([
-                'saldo_poin' => 0,
-                'total_sampah_kg' => 0,
+                'saldo' => 0,
+                'poin'  => 0,
             ]);
 
             if ($hapusRiwayat) {
@@ -37,10 +37,10 @@ Route::get('dev/reset-saldo', function (Request $request) {
                 'status' => 'sukses',
                 'pesan' => "Saldo untuk user {$user->nama} ({$user->email}) berhasil di-reset menjadi Rp 0.",
                 'user' => [
-                    'nama' => $user->nama,
+                    'nama'  => $user->nama,
                     'email' => $user->email,
-                    'saldo_poin' => $user->saldo_poin,
-                    'total_sampah_kg' => $user->total_sampah_kg,
+                    'saldo' => $user->saldo,
+                    'poin'  => $user->poin,
                 ]
             ]);
         }
@@ -48,8 +48,8 @@ Route::get('dev/reset-saldo', function (Request $request) {
         // Reset SEMUA pengguna yang ada di database sekarang
         $users = \App\Models\User::all();
         foreach ($users as $u) {
-            $u->saldo_poin = 0;
-            $u->total_sampah_kg = 0;
+            $u->saldo = 0;
+            $u->poin = 0;
             $u->save();
         }
 
@@ -63,7 +63,7 @@ Route::get('dev/reset-saldo', function (Request $request) {
             \App\Models\Notification::truncate();
         }
 
-        $daftarPengguna = \App\Models\User::select('id', 'nama', 'email', 'peran', 'saldo_poin', 'total_sampah_kg')->get();
+        $daftarPengguna = \App\Models\User::select('id', 'nama', 'email', 'peran', 'saldo', 'poin')->get();
 
         return response()->json([
             'status' => 'sukses',
@@ -71,6 +71,35 @@ Route::get('dev/reset-saldo', function (Request $request) {
             'total_pengguna' => $daftarPengguna->count(),
             'daftar_pengguna_di_database' => $daftarPengguna,
             'hapus_riwayat' => $hapusRiwayat ? 'Semua riwayat transaksi & notifikasi juga dibersihkan' : 'Riwayat transaksi tetap disimpan'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'galat' => $e->getMessage()], 500);
+    }
+});
+
+// ── SINKRONISASI POIN (1 Poin = Rp 100) ────────────────────────
+Route::get('dev/sync-poin', function () {
+    try {
+        $users = \App\Models\User::all();
+        $updatedList = [];
+        foreach ($users as $u) {
+            $poinBaru = (int) floor($u->saldo / 100);
+            $u->poin = $poinBaru;
+            $u->save();
+
+            $updatedList[] = [
+                'nama'      => $u->nama,
+                'email'     => $u->email,
+                'saldo_rp'  => $u->saldo,
+                'poin_baru' => $u->poin,
+            ];
+        }
+
+        return response()->json([
+            'status' => 'sukses',
+            'pesan'  => 'Konversi poin (1 Poin = Rp 100) berhasil disinkronkan untuk seluruh akun!',
+            'total'  => count($updatedList),
+            'daftar' => $updatedList,
         ]);
     } catch (\Exception $e) {
         return response()->json(['status' => 'error', 'galat' => $e->getMessage()], 500);
@@ -222,9 +251,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('transactions/{id}',  [TransactionController::class, 'destroy']);
 
     // Data Management (Admin/Mitra)
-    Route::post('trash-prices',             [DataController::class, 'storeTrashPrice']);
-    Route::put('trash-prices/{id}',         [DataController::class, 'updateTrashPrice']);
-    Route::delete('trash-prices/{id}',      [DataController::class, 'destroyTrashPrice']);
+    Route::post('trash-prices',              [DataController::class, 'storeTrashPrice']);
+    Route::post('trash-prices/upload-photo', [DataController::class, 'uploadTrashPhoto']);
+    Route::put('trash-prices/{id}',          [DataController::class, 'updateTrashPrice']);
+    Route::delete('trash-prices/{id}',       [DataController::class, 'destroyTrashPrice']);
 
     Route::post('partners',                 [DataController::class, 'storePartner']);
     Route::delete('partners/{id}',          [DataController::class, 'destroyPartner']);
@@ -236,6 +266,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('notifications',             [DataController::class, 'getNotifications']);
 
+    // ── Feedback (Kritik & Saran) ─────────────────────────────────
+    Route::post('feedback',                 [DataController::class, 'submitFeedback']);
+    Route::get('feedback',                  [DataController::class, 'getFeedbacks']);
+
     // ── Mitra Routes ──────────────────────────────────────────────
     Route::prefix('mitra')->group(function () {
         Route::get('pos-list',       [\App\Http\Controllers\Api\MitraController::class, 'listPos']);
@@ -243,6 +277,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('nasabah',        [\App\Http\Controllers\Api\MitraController::class, 'daftarNasabah']);
         Route::get('nasabah/{id}',   [\App\Http\Controllers\Api\MitraController::class, 'detailNasabah']);
         Route::post('nasabah',       [\App\Http\Controllers\Api\MitraController::class, 'registrasiNasabah']);
+        Route::put('nasabah/{id}',   [\App\Http\Controllers\Api\MitraController::class, 'updateNasabah']);
+        Route::put('nasabah/{id}/password', [\App\Http\Controllers\Api\MitraController::class, 'updateNasabahPassword']);
         Route::delete('nasabah/{id}',[\App\Http\Controllers\Api\MitraController::class, 'hapusNasabah']);
         Route::post('setoran',                [\App\Http\Controllers\Api\MitraController::class, 'prosesSetoran']);
         Route::post('cairkan-saldo-nasabah',  [\App\Http\Controllers\Api\MitraController::class, 'cairkanSaldoNasabah']);
@@ -252,5 +288,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('pos',            [\App\Http\Controllers\Api\MitraController::class, 'updatePosProfile']);
         Route::delete('pos/{id}',    [\App\Http\Controllers\Api\MitraController::class, 'destroyPos']);
         Route::post('tambah-pos',     [\App\Http\Controllers\Api\MitraController::class, 'createPosBranch']);
+        // Mitra Feedback
+        Route::get('feedback',              [DataController::class, 'getMitraFeedbacks']);
+        Route::post('feedback/{id}/jawab',  [DataController::class, 'replyFeedback']);
     });
 });

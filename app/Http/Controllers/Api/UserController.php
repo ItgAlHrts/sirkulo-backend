@@ -12,9 +12,7 @@ class UserController extends Controller
     public function profile(Request $request)
     {
         $pengguna = $request->user();
-        if ($pengguna->poin !== $pengguna->saldo) {
-            $pengguna->update(['poin' => $pengguna->saldo]);
-        }
+        $poinDihitung = (int) floor(($pengguna->saldo ?? 0) / 100);
         return response()->json([
             'id'        => $pengguna->id,
             'kode_user' => $pengguna->kode_user,
@@ -23,7 +21,7 @@ class UserController extends Controller
             'telepon'   => $pengguna->telepon,
             'alamat'    => $pengguna->alamat,
             'saldo'     => $pengguna->saldo,
-            'poin'      => $pengguna->saldo, // Poin selalu sama persis dengan saldo rupiah
+            'poin'      => $poinDihitung, // 1 Poin = Rp 100
             'peran'     => $pengguna->peran,
             'foto_url'  => $pengguna->foto_url,
         ]);
@@ -66,7 +64,7 @@ class UserController extends Controller
 
         $pengguna = $request->user();
         $jalur = $file->store('foto_profil', 'public');
-        $urlFoto = url('storage/' . $jalur);
+        $urlFoto = $request->getSchemeAndHttpHost() . '/storage/' . $jalur;
         $pengguna->update(['foto_url' => $urlFoto]);
 
         return response()->json([

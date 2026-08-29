@@ -8,6 +8,7 @@ use App\Models\Partner;
 use App\Models\Transaction;
 use App\Models\Notification;
 use App\Models\TrashCategory;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -231,10 +232,82 @@ class MitraController extends Controller
             'dibuat_pada' => now(),
         ]);
 
-        return response()->json([
-            'pesan'   => 'Nasabah berhasil didaftarkan',
-            'nasabah' => $nasabah,
-        ], 201);
+        return response()->json($nasabah, 201);
+    }
+
+    /**
+     * PUT /api/mitra/nasabah/{id}
+     * Update profil / info nasabah (nama, telepon, email, alamat).
+     */
+    public function updateNasabah(Request $request, $id)
+    {
+        try {
+            $nasabah = User::where('id', $id)->where('peran', 'NASABAH')->first();
+            if (!$nasabah) {
+                return response()->json(['galat' => 'Data nasabah tidak ditemukan'], 404);
+            }
+
+            $request->validate([
+                'nama'    => 'required|string|max:100',
+                'telepon' => 'required|string|unique:pengguna,telepon,' . $nasabah->id,
+                'email'   => 'nullable|email|unique:pengguna,email,' . $nasabah->id,
+                'alamat'  => 'nullable|string',
+            ]);
+
+            $nasabah->nama = $request->nama;
+            $nasabah->telepon = $request->telepon;
+            if ($request->filled('email')) {
+                $nasabah->email = $request->email;
+            }
+            if ($request->has('alamat')) {
+                $nasabah->alamat = $request->alamat;
+            }
+            $nasabah->save();
+
+            return response()->json($nasabah);
+        } catch (\Exception $e) {
+            return response()->json([
+                'galat' => 'Gagal memperbarui data nasabah: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * PUT /api/mitra/nasabah/{id}/password
+     * Ubah / Reset password nasabah oleh Mitra.
+     */
+    public function updateNasabahPassword(Request $request, $id)
+    {
+        try {
+            $nasabah = User::where('id', $id)->where('peran', 'NASABAH')->first();
+            if (!$nasabah) {
+                return response()->json(['galat' => 'Data nasabah tidak ditemukan'], 404);
+            }
+
+            $request->validate([
+                'password_baru' => 'required|string|min:6',
+            ]);
+
+            $nasabah->kata_sandi = Hash::make($request->password_baru);
+            $nasabah->save();
+
+            // Buat notifikasi ke nasabah
+            Notification::create([
+                'id_pengguna' => $nasabah->id,
+                'judul'       => 'Password Berhasil Diubah',
+                'deskripsi'   => 'Password akun Anda telah diatur ulang oleh Mitra ' . $request->user()->nama,
+                'jenis'       => 'INFO',
+                'dibuat_pada' => now(),
+            ]);
+
+            return response()->json([
+                'pesan' => 'Password nasabah berhasil diperbarui',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'galat' => 'Gagal mengubah password nasabah: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -284,8 +357,8 @@ class MitraController extends Controller
         $mitra = $this->getMitra($request);
         $totalNominal = (int) round($request->berat_kg * $request->harga_per_kg);
         $metode = $request->metode_pembayaran ?? 'SALDO';
-        // Poin selalu sama dengan nominal saldo rupiah
-        $poinDidapat = ($metode === 'SALDO') ? $totalNominal : 0;
+        // Konversi Poin: 1 Poin = Rp 100
+        $poinDidapat = ($metode === 'SALDO') ? (int) floor($totalNominal / 100) : 0;
         $noReferensi = 'SET-' . strtoupper(Str::random(8));
 
         try {
@@ -313,10 +386,10 @@ class MitraController extends Controller
             $nasabah = User::find($request->id_pengguna);
             $saldoSebelumnya = $nasabah->saldo;
 
-            // Jika metode SALDO -> tabungan digital & poin bertambah sama persis
+            // Jika metode SALDO -> tabungan digital bertambah rupiah & poin bertambah (1 Poin = Rp 100)
             if ($metode === 'SALDO') {
                 $nasabah->increment('saldo', $totalNominal);
-                $nasabah->update(['poin' => $nasabah->saldo]);
+                $nasabah->update(['poin' => (int) floor($nasabah->saldo / 100)]);
             } else if ($metode === 'TUNAI_CASH') {
                 // 2. Jika Bayar Tunai Cash: Catat otomatis transaksi PENARIKAN sekalian (uang diserahkan tunai di tempat)
                 $noRefTarik = 'WD-' . strtoupper(Str::random(8));
@@ -403,9 +476,9 @@ class MitraController extends Controller
             $poinSebelumnya = $nasabah->poin;
             $nasabah->decrement('saldo', $request->nominal);
 
-            // Pengurangan poin: Poin selalu sama dengan saldo rupiah (1 Poin = Rp 1)
-            $poinDipotong = $request->nominal;
-            $nasabah->update(['poin' => $nasabah->saldo]);
+            // Pengurangan poin (1 Poin = Rp 100)
+            $poinDipotong = (int) floor($request->nominal / 100);
+            $nasabah->update(['poin' => (int) floor($nasabah->saldo / 100)]);
 
             $trx = Transaction::create([
                 'id_pengguna'     => $nasabah->id,
@@ -526,24 +599,40 @@ class MitraController extends Controller
         $mitra = $this->getMitra($request);
         $periode = $request->periode ?? 'bulan_ini';
 
-        $startDate = match ($periode) {
-            'hari_ini'   => now()->startOfDay(),
-            'minggu_ini' => now()->startOfWeek(),
-            'tahun_ini'  => now()->startOfYear(),
-            default      => now()->startOfMonth(),
-        };
+        // Ekstrak tahun jika tersedia (misal: "tahun_2025", "bulan_8_2025", query param ?tahun=2025)
+        $tahunDipilih = (int) ($request->tahun ?: (preg_match('/(?:tahun_?|_)(\d{4})/', $periode, $m) ? $m[1] : now()->year));
+
+        // Ekstrak bulan jika tersedia (misal: "bulan_8", "bulan_8_2025", query param ?bulan=8)
+        $bulanDipilih = (int) ($request->bulan ?: (preg_match('/bulan_?(\d{1,2})/', $periode, $mb) ? $mb[1] : now()->month));
+
+        if ($periode === 'hari_ini') {
+            $startDate = now()->startOfDay();
+            $endDate = now()->endOfDay();
+        } elseif ($periode === 'minggu_ini') {
+            $startDate = now()->startOfWeek();
+            $endDate = now()->endOfWeek();
+        } elseif (str_starts_with($periode, 'bulan') || $request->has('bulan')) {
+            $startDate = Carbon::createFromDate($tahunDipilih, $bulanDipilih, 1)->startOfMonth();
+            $endDate = Carbon::createFromDate($tahunDipilih, $bulanDipilih, 1)->endOfMonth();
+        } elseif (str_starts_with($periode, 'tahun') || $request->has('tahun')) {
+            $startDate = Carbon::createFromDate($tahunDipilih, 1, 1)->startOfYear();
+            $endDate = Carbon::createFromDate($tahunDipilih, 12, 31)->endOfYear();
+        } else {
+            $startDate = now()->startOfMonth();
+            $endDate = now()->endOfMonth();
+        }
 
         // Ambil semua transaksi dalam periode ini dari pos yang dipilih
         $allTranx = Transaction::where('id_mitra', $mitra->id)
-            ->where('dibuat_pada', '>=', $startDate)
+            ->whereBetween('dibuat_pada', [$startDate, $endDate])
             ->orderBy('dibuat_pada', 'desc')
             ->get();
 
         $setoran   = $allTranx->where('jenis', 'SETORAN');
         $penarikan = $allTranx->where('jenis', 'PENARIKAN');
 
-        $totalSetoran   = $setoran->sum('jumlah_total');
-        $totalPenarikan = $penarikan->sum('jumlah_total');
+        $totalSetoran   = (int) $setoran->sum('jumlah_total');
+        $totalPenarikan = (int) $penarikan->sum('jumlah_total');
         $jumlahTransaksi = $allTranx->count();
         $jumlahSetoran   = $setoran->count();
         $jumlahPenarikan = $penarikan->count();
@@ -612,25 +701,116 @@ class MitraController extends Controller
             ? (int) round(($totalMarginUntung / $totalSetoran) * 100)
             : 0;
 
-        // ── Grafik Batang (7 hari terakhir) ─────────────────────
+        // ── Grafik Batang Sesuai Periode (Presisi Penuh) ────────────
         $chartData = [];
-        for ($i = 6; $i >= 0; $i--) {
-            $date = now()->subDays($i);
-            $daySetoran = Transaction::where('id_mitra', $mitra->id)
-                ->where('jenis', 'SETORAN')
-                ->whereDate('dibuat_pada', $date->toDateString())
-                ->sum('jumlah_total');
-            $dayPenarikan = Transaction::where('id_mitra', $mitra->id)
-                ->where('jenis', 'PENARIKAN')
-                ->whereDate('dibuat_pada', $date->toDateString())
-                ->sum('jumlah_total');
-
-            $chartData[] = [
-                'tanggal'   => $date->format('d M'),
-                'hari'      => $date->isoFormat('ddd'),
-                'total'     => (int) $daySetoran,
-                'penarikan' => (int) $dayPenarikan,
+        if ($periode === 'hari_ini') {
+            // 6 slot waktu meliputi 24 jam penuh tanpa detik yang terlewat
+            $slots = [
+                ['06:00', 0, 8],   // 00:00 - 08:59:59 (Pagi & Subuh)
+                ['09:00', 9, 11],  // 09:00 - 11:59:59 (Pagi Menjelang Siang)
+                ['12:00', 12, 14], // 12:00 - 14:59:59 (Siang)
+                ['15:00', 15, 17], // 15:00 - 17:59:59 (Sore)
+                ['18:00', 18, 20], // 18:00 - 20:59:59 (Petang / Maghrib)
+                ['21:00', 21, 23], // 21:00 - 23:59:59 (Malam)
             ];
+            foreach ($slots as $slot) {
+                $startSlot = now()->startOfDay()->addHours($slot[1]);
+                $endSlot = ($slot[2] === 23)
+                    ? now()->endOfDay()
+                    : now()->startOfDay()->addHours($slot[2] + 1)->subMicrosecond();
+
+                $slotSetoran = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'SETORAN')
+                    ->whereBetween('dibuat_pada', [$startSlot, $endSlot])
+                    ->sum('jumlah_total');
+                $slotPenarikan = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'PENARIKAN')
+                    ->whereBetween('dibuat_pada', [$startSlot, $endSlot])
+                    ->sum('jumlah_total');
+                $chartData[] = [
+                    'tanggal'   => $slot[0],
+                    'hari'      => $slot[0],
+                    'total'     => (int) $slotSetoran,
+                    'penarikan' => (int) $slotPenarikan,
+                ];
+            }
+        } elseif ($periode === 'minggu_ini') {
+            // 7 hari dalam minggu (Senin - Minggu)
+            $startWeek = now()->startOfWeek();
+            $namaHari = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+            for ($i = 0; $i < 7; $i++) {
+                $date = $startWeek->copy()->addDays($i);
+                $dayStart = $date->copy()->startOfDay();
+                $dayEnd = $date->copy()->endOfDay();
+
+                $daySetoran = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'SETORAN')
+                    ->whereBetween('dibuat_pada', [$dayStart, $dayEnd])
+                    ->sum('jumlah_total');
+                $dayPenarikan = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'PENARIKAN')
+                    ->whereBetween('dibuat_pada', [$dayStart, $dayEnd])
+                    ->sum('jumlah_total');
+                $chartData[] = [
+                    'tanggal'   => $date->format('d M'),
+                    'hari'      => $namaHari[$i] ?? $date->format('D'),
+                    'total'     => (int) $daySetoran,
+                    'penarikan' => (int) $dayPenarikan,
+                ];
+            }
+        } elseif (str_starts_with($periode, 'bulan') || $request->has('bulan')) {
+            // 6 Interval tanggal dalam bulan yang dipilih (1-5, 6-10, 11-15, 16-20, 21-25, 26-akhir)
+            $monthCarbon = Carbon::createFromDate($tahunDipilih, $bulanDipilih, 1);
+            $daysInMonth = $monthCarbon->daysInMonth;
+            $intervals = [
+                [1, 5],
+                [6, 10],
+                [11, 15],
+                [16, 20],
+                [21, 25],
+                [26, $daysInMonth]
+            ];
+            foreach ($intervals as $iv) {
+                $startD = $monthCarbon->copy()->day($iv[0])->startOfDay();
+                $endDDate = $monthCarbon->copy()->day($iv[1])->endOfDay();
+
+                $periodSetoran = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'SETORAN')
+                    ->whereBetween('dibuat_pada', [$startD, $endDDate])
+                    ->sum('jumlah_total');
+                $periodPenarikan = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'PENARIKAN')
+                    ->whereBetween('dibuat_pada', [$startD, $endDDate])
+                    ->sum('jumlah_total');
+                $chartData[] = [
+                    'tanggal'   => "{$iv[0]}-{$iv[1]}",
+                    'hari'      => "{$iv[0]}-{$iv[1]}",
+                    'total'     => (int) $periodSetoran,
+                    'penarikan' => (int) $periodPenarikan,
+                ];
+            }
+        } else {
+            // 12 Bulan dalam Tahun yang dipilih (Jan - Des)
+            $namaBulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            for ($m = 1; $m <= 12; $m++) {
+                $startM = Carbon::createFromDate($tahunDipilih, $m, 1)->startOfMonth();
+                $endM = Carbon::createFromDate($tahunDipilih, $m, 1)->endOfMonth();
+
+                $monthSetoran = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'SETORAN')
+                    ->whereBetween('dibuat_pada', [$startM, $endM])
+                    ->sum('jumlah_total');
+                $monthPenarikan = Transaction::where('id_mitra', $mitra->id)
+                    ->where('jenis', 'PENARIKAN')
+                    ->whereBetween('dibuat_pada', [$startM, $endM])
+                    ->sum('jumlah_total');
+                $chartData[] = [
+                    'tanggal'   => $namaBulan[$m - 1],
+                    'hari'      => $namaBulan[$m - 1],
+                    'total'     => (int) $monthSetoran,
+                    'penarikan' => (int) $monthPenarikan,
+                ];
+            }
         }
 
         // ── Transaksi terbaru (full dengan keterangan) ───────────

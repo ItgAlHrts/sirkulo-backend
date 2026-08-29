@@ -24,22 +24,58 @@ class User extends Authenticatable
 
     protected $appends = ['kode_user'];
 
+    public function getPoinAttribute(): int
+    {
+        // 1 Poin = Rp 100
+        return (int) floor(((int)($this->attributes['saldo'] ?? 0)) / 100);
+    }
+
+    public function getFotoUrlAttribute($value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            if (preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?(/.*)?$#i', $value, $matches)) {
+                $path = $matches[3] ?? '';
+                return request()->getSchemeAndHttpHost() . $path;
+            }
+            return $value;
+        }
+        $cleanPath = ltrim($value, '/');
+        if (!str_starts_with($cleanPath, 'storage/')) {
+            $cleanPath = 'storage/' . $cleanPath;
+        }
+        return request()->getSchemeAndHttpHost() . '/' . $cleanPath;
+    }
+
     public function getKodeUserAttribute(): string
     {
-        if (strtolower($this->email ?? '') === 'itang@gmail.com') {
-            return 'SRKL001';
-        }
-        if (strtolower($this->email ?? '') === 'mitrasirkulo@gmail.com') {
+        if (strtolower($this->email ?? '') === 'mitrasirkulo@gmail.com' || ($this->peran ?? '') === 'MITRA') {
             return 'SRKL-ADM';
         }
 
-        // Format kode pendek SRKL(nomor) 3 digit
-        $digits = preg_replace('/[^0-9]/', '', (string)$this->id);
-        if (strlen($digits) >= 3) {
-            return 'SRKL' . substr($digits, 0, 3);
+        // Urutan nomor anggota berurutan (SRKL001, SRKL002, SRKL003, dst)
+        try {
+            $allNasabahIds = \Illuminate\Support\Facades\Cache::remember('nasabah_id_order_list', 5, function () {
+                return self::where('peran', 'NASABAH')
+                    ->orderBy('dibuat_pada', 'asc')
+                    ->orderBy('id', 'asc')
+                    ->pluck('id')
+                    ->toArray();
+            });
+
+            $index = array_search($this->id, $allNasabahIds);
+            if ($index !== false) {
+                return 'SRKL' . sprintf('%03d', $index + 1);
+            }
+        } catch (\Throwable $e) {
+            // fallback
         }
-        $num = (abs(crc32((string)$this->id)) % 900) + 100;
-        return 'SRKL' . sprintf('%03d', $num);
+
+        // Fallback jika tidak ditemukan: 4 karakter unik terakhir dari ID
+        $cleanId = str_replace('-', '', (string)$this->id);
+        return 'SRKL' . strtoupper(substr($cleanId, -4));
     }
 
     protected $hidden = [

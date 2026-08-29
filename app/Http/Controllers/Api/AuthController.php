@@ -110,7 +110,7 @@ class AuthController extends Controller
                     'telepon'    => '082342270844',
                     'alamat'     => 'Kedungmundu, Tembalang, Kota Semarang',
                     'saldo'      => 55000,
-                    'poin'       => 55000,
+                    'poin'       => 550,
                     'peran'      => 'NASABAH',
                 ]
             );

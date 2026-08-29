@@ -7,6 +7,7 @@ use App\Models\TrashCategory;
 use App\Models\Education;
 use App\Models\Partner;
 use App\Models\Notification;
+use App\Models\Feedback;
 use Illuminate\Http\Request;
 
 class DataController extends Controller
@@ -15,6 +16,13 @@ class DataController extends Controller
     public function getTrashPrices(Request $request)
     {
         try {
+            // Auto migration safe check untuk kolom foto_contoh
+            if (\Illuminate\Support\Facades\Schema::hasTable('kategori_sampah') && !\Illuminate\Support\Facades\Schema::hasColumn('kategori_sampah', 'foto_contoh')) {
+                \Illuminate\Support\Facades\Schema::table('kategori_sampah', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->json('foto_contoh')->nullable()->after('ikon');
+                });
+            }
+
             // Pastikan master sampah tidak pernah kosong (Auto-Seed jika kosong)
             if (TrashCategory::count() === 0) {
                 $defaultCategories = [
@@ -37,6 +45,20 @@ class DataController extends Controller
         return response()->json(TrashCategory::orderBy('nama', 'asc')->get());
     }
 
+    public function uploadTrashPhoto(Request $request)
+    {
+        $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar') ?? $request->file('file');
+        if (!$file || !$file->isValid()) {
+            return response()->json(['galat' => 'File gambar tidak valid atau tidak ditemukan'], 422);
+        }
+        $path = $file->store('sampah', 'public');
+        $url = $request->getSchemeAndHttpHost() . '/storage/' . $path;
+        return response()->json([
+            'url_gambar' => $url,
+            'pesan'      => 'Foto sampah berhasil diunggah'
+        ]);
+    }
+
     public function storeTrashPrice(Request $request)
     {
         try {
@@ -45,6 +67,7 @@ class DataController extends Controller
                 'harga_per_kg'   => 'required|numeric|min:1',
                 'harga_pengepul' => 'nullable|numeric|min:1',
                 'ikon'           => 'nullable|string',
+                'foto_contoh'    => 'nullable',
             ]);
             $data['harga_per_kg'] = (int) $data['harga_per_kg'];
             if (!empty($data['harga_pengepul'])) {
@@ -53,9 +76,36 @@ class DataController extends Controller
                 // Default harga jual ke pengepul = harga beli nasabah + 40%
                 $data['harga_pengepul'] = (int) max($data['harga_per_kg'] + 500, round($data['harga_per_kg'] * 1.4));
             }
-            if (empty($data['ikon'])) {
-                $data['ikon'] = 'ic_trash';
+
+            // Normalisasi foto_contoh jika berupa string JSON / array
+            if (!empty($data['foto_contoh'])) {
+                if (is_string($data['foto_contoh'])) {
+                    $decoded = json_decode($data['foto_contoh'], true);
+                    $data['foto_contoh'] = is_array($decoded) ? $decoded : array_filter(explode(',', $data['foto_contoh']));
+                }
+            } else {
+                $data['foto_contoh'] = [];
             }
+
+            // Jika ada file foto langsung diunggah dalam form
+            $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar');
+            if ($file && $file->isValid()) {
+                $path = $file->store('sampah', 'public');
+                $uploadedUrl = $request->getSchemeAndHttpHost() . '/storage/' . $path;
+                $data['ikon'] = $uploadedUrl;
+                if (!in_array($uploadedUrl, $data['foto_contoh'])) {
+                    $data['foto_contoh'][] = $uploadedUrl;
+                }
+            }
+
+            if (empty($data['ikon'])) {
+                if (!empty($data['foto_contoh']) && count($data['foto_contoh']) > 0) {
+                    $data['ikon'] = $data['foto_contoh'][0];
+                } else {
+                    $data['ikon'] = 'ic_trash';
+                }
+            }
+
             $item = TrashCategory::create($data);
             return response()->json($item, 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -72,13 +122,41 @@ class DataController extends Controller
             if (!$item) {
                 return response()->json(['galat' => 'Kategori sampah tidak ditemukan'], 404);
             }
-            $dataToUpdate = array_filter($request->only('nama', 'harga_per_kg', 'harga_pengepul', 'ikon'), fn($val) => !is_null($val));
+            $dataToUpdate = array_filter($request->only('nama', 'harga_per_kg', 'harga_pengepul', 'ikon', 'foto_contoh'), fn($val) => !is_null($val));
             if (isset($dataToUpdate['harga_per_kg'])) {
                 $dataToUpdate['harga_per_kg'] = (int) $dataToUpdate['harga_per_kg'];
             }
             if (isset($dataToUpdate['harga_pengepul'])) {
                 $dataToUpdate['harga_pengepul'] = (int) $dataToUpdate['harga_pengepul'];
             }
+
+            if (isset($dataToUpdate['foto_contoh'])) {
+                if (is_string($dataToUpdate['foto_contoh'])) {
+                    $decoded = json_decode($dataToUpdate['foto_contoh'], true);
+                    $dataToUpdate['foto_contoh'] = is_array($decoded) ? $decoded : array_filter(explode(',', $dataToUpdate['foto_contoh']));
+                }
+            }
+
+            // Jika ada file foto langsung diunggah dalam form
+            $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar');
+            if ($file && $file->isValid()) {
+                $path = $file->store('sampah', 'public');
+                $uploadedUrl = $request->getSchemeAndHttpHost() . '/storage/' . $path;
+                $dataToUpdate['ikon'] = $uploadedUrl;
+                $currentPhotos = $item->foto_contoh ?? [];
+                if (!in_array($uploadedUrl, $currentPhotos)) {
+                    $currentPhotos[] = $uploadedUrl;
+                    $dataToUpdate['foto_contoh'] = $currentPhotos;
+                }
+            }
+
+            // Update primary ikon jika foto_contoh diperbarui dan ikon belum diset/perlu diselaraskan
+            if (isset($dataToUpdate['foto_contoh']) && is_array($dataToUpdate['foto_contoh']) && count($dataToUpdate['foto_contoh']) > 0) {
+                if (empty($dataToUpdate['ikon']) || $dataToUpdate['ikon'] === 'ic_trash') {
+                    $dataToUpdate['ikon'] = $dataToUpdate['foto_contoh'][0];
+                }
+            }
+
             $item->update($dataToUpdate);
             return response()->json($item);
         } catch (\Exception $e) {
@@ -172,7 +250,7 @@ class DataController extends Controller
             return response()->json(['galat' => 'File gambar tidak valid atau tidak ditemukan'], 422);
         }
         $path = $file->store('edukasi', 'public');
-        $url = url('storage/' . $path);
+        $url = $request->getSchemeAndHttpHost() . '/storage/' . $path;
         return response()->json([
             'url_gambar' => $url,
             'pesan'      => 'Foto edukasi berhasil diunggah'
@@ -193,7 +271,7 @@ class DataController extends Controller
             $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar');
             if ($file && $file->isValid()) {
                 $path = $file->store('edukasi', 'public');
-                $data['url_gambar'] = url('storage/' . $path);
+                $data['url_gambar'] = $request->getSchemeAndHttpHost() . '/storage/' . $path;
             }
 
             if (empty($data['url_gambar'])) {
@@ -222,7 +300,7 @@ class DataController extends Controller
             $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar');
             if ($file && $file->isValid()) {
                 $path = $file->store('edukasi', 'public');
-                $dataToUpdate['url_gambar'] = url('storage/' . $path);
+                $dataToUpdate['url_gambar'] = $request->getSchemeAndHttpHost() . '/storage/' . $path;
             }
 
             $item->update($dataToUpdate);
@@ -251,5 +329,100 @@ class DataController extends Controller
         return response()->json(
             Notification::where('id_pengguna', $request->user()->id)->orderBy('dibuat_pada', 'desc')->get()
         );
+    }
+
+    // ── Kritik & Saran (Feedback) ─────────────────────────────────
+    private function ensureFeedbackTableExists()
+    {
+        try {
+            if (!\Illuminate\Support\Facades\Schema::hasTable('kritik_saran')) {
+                \Illuminate\Support\Facades\Schema::create('kritik_saran', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->uuid('id')->primary();
+                    $table->uuid('id_pengguna');
+                    $table->string('kategori');
+                    $table->text('pesan');
+                    $table->text('jawaban')->nullable();
+                    $table->uuid('id_mitra')->nullable();
+                    $table->timestamp('dijawab_pada')->nullable();
+                    $table->timestamp('dibuat_pada')->nullable();
+                    $table->timestamp('diperbarui_pada')->nullable();
+
+                    $table->foreign('id_pengguna')->references('id')->on('pengguna')->onDelete('cascade');
+                });
+            }
+        } catch (\Exception $e) {
+            // ignore if already exists or fails gracefully
+        }
+    }
+
+    public function submitFeedback(Request $request)
+    {
+        $this->ensureFeedbackTableExists();
+        $validated = $request->validate([
+            'pesan'    => 'required|string',
+            'kategori' => 'required|string',
+        ]);
+
+        $feedback = Feedback::create([
+            'id_pengguna' => $request->user()->id,
+            'kategori'    => $validated['kategori'],
+            'pesan'       => $validated['pesan'],
+        ]);
+
+        return response()->json($feedback->load('pengguna'), 201);
+    }
+
+    public function getFeedbacks(Request $request)
+    {
+        $this->ensureFeedbackTableExists();
+        $feedbacks = Feedback::where('id_pengguna', $request->user()->id)
+            ->with('pengguna')
+            ->orderBy('dibuat_pada', 'desc')
+            ->get();
+
+        return response()->json($feedbacks);
+    }
+
+    public function getMitraFeedbacks(Request $request)
+    {
+        $this->ensureFeedbackTableExists();
+        $feedbacks = Feedback::with('pengguna')
+            ->orderBy('dibuat_pada', 'desc')
+            ->get();
+
+        return response()->json($feedbacks);
+    }
+
+    public function replyFeedback(Request $request, $id)
+    {
+        $this->ensureFeedbackTableExists();
+        $validated = $request->validate([
+            'jawaban' => 'required|string',
+        ]);
+
+        $feedback = Feedback::find($id);
+        if (!$feedback) {
+            return response()->json(['galat' => 'Data kritik & saran tidak ditemukan'], 404);
+        }
+
+        $feedback->update([
+            'jawaban'      => $validated['jawaban'],
+            'dijawab_pada' => now(),
+            'id_mitra'     => $request->user()->id,
+        ]);
+
+        // Buat notifikasi untuk nasabah
+        try {
+            Notification::create([
+                'id_pengguna' => $feedback->id_pengguna,
+                'judul'       => 'Balasan Kritik & Saran',
+                'deskripsi'   => 'Mitra SIRKULO telah membalas: "' . \Illuminate\Support\Str::limit($validated['jawaban'], 60) . '"',
+                'jenis'       => 'FEEDBACK',
+            ]);
+        } catch (\Exception $e) {
+            // ignore notification failure
+        }
+
+        return response()->json($feedback->load('pengguna'));
     }
 }
