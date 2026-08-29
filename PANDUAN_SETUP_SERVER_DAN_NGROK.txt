@@ -1,0 +1,91 @@
+================================================================================
+          PANDUAN SETUP SERVER BACKEND (LARAVEL) & NGROK DI LAPTOP BARU
+                               SIRKULO APP
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PERSIAPAN SOFTWARE DI LAPTOP BARU
+--------------------------------------------------------------------------------
+Pastikan laptop baru sudah menginstal software berikut:
+1. XAMPP (untuk PHP & MySQL Database)
+   Download: https://www.apachefriends.org/download.html
+2. Composer (Package manager PHP)
+   Download: https://getcomposer.org/download/
+3. Ngrok (Tunneling online)
+   Download: https://ngrok.com/download
+
+
+--------------------------------------------------------------------------------
+2. SETUP DATABASE & NYALAKAN MYSQL
+--------------------------------------------------------------------------------
+1. Buka aplikasi "XAMPP Control Panel".
+2. Klik tombol [Start] pada Apache dan MySQL.
+3. Buka browser, masuk ke: http://localhost/phpmyadmin
+4. Buat Database Baru dengan nama: sirkulo
+
+
+--------------------------------------------------------------------------------
+3. SETUP & JALANKAN SERVER LARAVEL (CMD 1)
+--------------------------------------------------------------------------------
+1. Pindahkan folder backend ke laptop baru (misal dinamai: sirkulo-backend).
+2. Buka Command Prompt (CMD), lalu masuk ke folder proyek:
+   
+   cd "D:\sirkulo-backend"
+   (atau sesuaikan dengan lokasi folder di laptop Anda)
+
+3. Jalankan perintah instalasi & setup berikut secara berurutan:
+
+   a. Buat file .env (jika belum ada):
+      copy .env.example .env
+
+   b. Generate Application Key:
+      php artisan key:generate
+
+   c. Hubungkan folder gambar/storage:
+      php artisan storage:link
+
+   d. Buat tabel & data awal database:
+      php artisan migrate --seed
+
+   e. Jalankan Server Laravel:
+      php artisan serve --host=127.0.0.1 --port=8000
+
+4. Biarkan jendela CMD 1 ini TETAP TERBUKA.
+   (Tanda berhasil: Muncul tulisan "INFO Server running on [http://127.0.0.1:8000]")
+
+
+--------------------------------------------------------------------------------
+4. SETUP & JALANKAN NGROK DARI AWAL (CMD 2)
+--------------------------------------------------------------------------------
+1. Ekstrak file ngrok.exe yang sudah didownload.
+2. Buka website https://dashboard.ngrok.com/signup lalu Login.
+3. Buka menu "Your Authtoken" di web ngrok, lalu salin (copy) token Anda.
+4. Buka Command Prompt BARU (CMD 2).
+5. Masukkan authtoken Anda ke ngrok:
+   
+   ngrok config add-authtoken TOKEN_RAHASIA_DARI_WEBSITE_NGROK
+
+6. Jalankan Ngrok untuk menghubungkan ke server Laravel port 8000:
+   
+   ngrok http 8000
+
+7. Biarkan jendela CMD 2 ini TETAP TERBUKA.
+8. Di layar CMD Ngrok akan muncul baris:
+   Forwarding   https://xxxx-xxxx-xxxx.ngrok-free.dev -> http://localhost:8000
+   (Salin link HTTPS tersebut).
+
+
+--------------------------------------------------------------------------------
+5. HUBUNGKAN KE APLIKASI ANDROID
+--------------------------------------------------------------------------------
+1. Buka proyek Android Studio di file:
+   app/src/main/java/com/sirkulo/nasabah/data/api/ApiClient.kt
+
+2. Ubah baris BASE_URL dengan link Ngrok baru Anda:
+   private const val BASE_URL = "https://xxxx-xxxx-xxxx.ngrok-free.dev/api/"
+   (PENTING: Wajib diakhiri dengan "/api/")
+
+3. Jalankan/Run aplikasi Android di HP atau Emulator.
+4. Aplikasi SIRKULO sudah terhubung 100% dengan backend di laptop baru!
+
+================================================================================
