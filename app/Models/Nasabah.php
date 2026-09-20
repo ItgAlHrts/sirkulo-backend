@@ -6,23 +6,31 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class Nasabah extends Authenticatable
 {
     use HasUuids, HasApiTokens;
 
-    // Nama tabel
-    protected $table = 'pengguna';
+    protected $table = 'nasabah';
 
-    // Nama kolom timestamp kustom
     const CREATED_AT = 'dibuat_pada';
     const UPDATED_AT = 'diperbarui_pada';
 
     protected $fillable = [
-        'nama', 'email', 'foto_url', 'kata_sandi', 'telepon', 'alamat',
-        'saldo', 'poin', 'peran', 'otp_reset', 'kadaluarsa_otp',
+        'nama',
+        'email',
+        'foto_url',
+        'kata_sandi',
+        'telepon',
+        'alamat',
+        'saldo',
+        'poin',
+        'peran',
+        'otp_reset',
+        'kadaluarsa_otp',
+        'kode_user',
     ];
 
-    protected $appends = ['kode_user'];
+    protected $appends = [];
 
     public function getPoinAttribute(): int
     {
@@ -36,7 +44,7 @@ class User extends Authenticatable
             return null;
         }
         if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
-            if (preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?(/.*)?$#i', $value, $matches)) {
+            if (preg_match('#^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?(/.*)?$#i', $value, $matches)) {
                 $path = $matches[3] ?? '';
                 return request()->getSchemeAndHttpHost() . $path;
             }
@@ -51,31 +59,35 @@ class User extends Authenticatable
 
     public function getKodeUserAttribute(): string
     {
-        if (strtolower($this->email ?? '') === 'mitrasirkulo@gmail.com' || ($this->peran ?? '') === 'MITRA') {
-            return 'SRKL-ADM';
+        // Baca dari kolom DB permanen terlebih dahulu (tidak akan berubah meski nasabah lain dihapus)
+        $stored = $this->attributes['kode_user'] ?? null;
+        if (!empty($stored)) {
+            return $stored;
         }
 
-        // Urutan nomor anggota berurutan (SRKL001, SRKL002, SRKL003, dst)
-        try {
-            $allNasabahIds = \Illuminate\Support\Facades\Cache::remember('nasabah_id_order_list', 5, function () {
-                return self::where('peran', 'NASABAH')
-                    ->orderBy('dibuat_pada', 'asc')
-                    ->orderBy('id', 'asc')
-                    ->pluck('id')
-                    ->toArray();
-            });
-
-            $index = array_search($this->id, $allNasabahIds);
-            if ($index !== false) {
-                return 'SRKL' . sprintf('%03d', $index + 1);
-            }
-        } catch (\Throwable $e) {
-            // fallback
-        }
-
-        // Fallback jika tidak ditemukan: 4 karakter unik terakhir dari ID
+        // Fallback: gunakan 4 karakter unik terakhir UUID (bukan posisi urutan)
         $cleanId = str_replace('-', '', (string)$this->id);
         return 'SRKL' . strtoupper(substr($cleanId, -4));
+    }
+
+    /**
+     * Generate kode_user berikutnya secara otomatis (SRKL001, SRKL002, dst.).
+     * Nomor bertambah terus — tidak pernah dipakai ulang walau nasabah dihapus.
+     */
+    public static function generateKodeUser(): string
+    {
+        // Ambil nomor tertinggi yang sudah pernah dipakai dari kolom kode_user
+        $maxKode = self::whereNotNull('kode_user')
+            ->where('kode_user', 'like', 'SRKL%')
+            ->orderByRaw('CAST(SUBSTRING(kode_user, 5) AS UNSIGNED) DESC')
+            ->value('kode_user');
+
+        $nextNum = 1;
+        if ($maxKode && preg_match('/^SRKL(\d+)$/', $maxKode, $m)) {
+            $nextNum = (int) $m[1] + 1;
+        }
+
+        return 'SRKL' . sprintf('%03d', $nextNum);
     }
 
     protected $hidden = [
@@ -95,22 +107,14 @@ class User extends Authenticatable
         return \Carbon\Carbon::instance($date)->timezone('Asia/Jakarta')->format('Y-m-d H:i:s');
     }
 
-    // Beritahu Laravel kolom password menggunakan nama 'kata_sandi'
     public function getAuthPassword(): string
     {
         return $this->kata_sandi;
     }
 
-    // Beritahu Laravel nama KOLOM password (untuk Guard)
     public function getAuthPasswordName(): string
     {
         return 'kata_sandi';
-    }
-
-    // Relasi
-    public function mitra()
-    {
-        return $this->hasOne(Partner::class, 'id_pengguna');
     }
 
     public function transaksi()

@@ -41,7 +41,7 @@ class TrashCategory extends Model
 
         // Jika URL eksternal atau tersimpan dengan localhost/127.0.0.1
         if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
-            if (preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?(/.*)?$#i', $value, $matches)) {
+            if (preg_match('#^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?(/.*)?$#i', $value, $matches)) {
                 $path = $matches[3] ?? '';
                 return request()->getSchemeAndHttpHost() . $path;
             }
@@ -84,7 +84,7 @@ class TrashCategory extends Model
         return array_values(array_filter(array_map(function ($item) {
             if (empty($item)) return null;
             if (str_starts_with($item, 'http://') || str_starts_with($item, 'https://')) {
-                if (preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?(/.*)?$#i', $item, $matches)) {
+                if (preg_match('#^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?(/.*)?$#i', $item, $matches)) {
                     $path = $matches[3] ?? '';
                     return request()->getSchemeAndHttpHost() . $path;
                 }
@@ -137,5 +137,15 @@ class TrashCategory extends Model
         $beli = $this->getHargaBeliAttribute();
         if ($beli <= 0) return 0;
         return (int) round(($this->getMarginPerKgAttribute() / $beli) * 100);
+    }
+
+    public function mitra()
+    {
+        return $this->belongsToMany(
+            Partner::class,
+            'pos_kategori_sampah',
+            'id_kategori',
+            'id_mitra'
+        );
     }
 }

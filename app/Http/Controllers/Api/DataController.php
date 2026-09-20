@@ -23,6 +23,21 @@ class DataController extends Controller
                 });
             }
 
+            // Pastikan pemisahan 3 tabel (admin, petugas_mitra, nasabah) sudah berjalan
+            if (!\Illuminate\Support\Facades\Schema::hasTable('nasabah')) {
+                \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+            }
+
+            // Hapus route & config cache agar route terbaru aktif
+            $routeCache = base_path('bootstrap/cache/routes-v7.php');
+            if (file_exists($routeCache)) {
+                @unlink($routeCache);
+            }
+            $configCache = base_path('bootstrap/cache/config.php');
+            if (file_exists($configCache)) {
+                @unlink($configCache);
+            }
+
             // Pastikan master sampah tidak pernah kosong (Auto-Seed jika kosong)
             if (TrashCategory::count() === 0) {
                 $defaultCategories = [
@@ -42,14 +57,44 @@ class DataController extends Controller
         } catch (\Exception $e) {
             // ignore
         }
+
+        // Jika ada id_mitra atau header X-Pos-Id, kembalikan hanya kategori yang diterima pos tersebut
+        $posId = $request->input('id_mitra') ?: $request->query('id_mitra') ?: $request->header('X-Pos-Id');
+        if (!empty($posId)) {
+            $pos = Partner::find($posId);
+            if (!$pos) {
+                // Coba cari berdasarkan kode_pos (cth "POS-002") atau nama
+                $pos = Partner::all()->first(function ($p) use ($posId) {
+                    return $p->id === $posId || $p->kode_pos === $posId || strcasecmp($p->nama, $posId) === 0 || stripos($p->nama, $posId) !== false;
+                });
+            }
+            if ($pos) {
+                $kategori = $pos->kategoriSampah()->get();
+                if ($kategori->isNotEmpty()) {
+                    return response()->json($kategori->sortBy('nama')->values());
+                }
+            }
+        }
+
         return response()->json(TrashCategory::orderBy('nama', 'asc')->get());
     }
 
     public function uploadTrashPhoto(Request $request)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Hanya Administrator Desa yang dapat mengunggah foto master sampah.'], 403);
+        }
+
+        $request->validate([
+            'foto' => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'photo' => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'gambar' => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'file' => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+        ]);
+
         $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar') ?? $request->file('file');
         if (!$file || !$file->isValid()) {
-            return response()->json(['galat' => 'File gambar tidak valid atau tidak ditemukan'], 422);
+            return response()->json(['galat' => 'File gambar tidak valid atau format tidak didukung (Maks 2MB)'], 422);
         }
         $path = $file->store('sampah', 'public');
         $url = $request->getSchemeAndHttpHost() . '/storage/' . $path;
@@ -61,6 +106,12 @@ class DataController extends Controller
 
     public function storeTrashPrice(Request $request)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json([
+                'galat' => 'Akses Ditolak: Penetapan master harga sampah resmi adalah wewenang eksklusif Kantor Desa melalui Web Admin.'
+            ], 403);
+        }
+
         try {
             $data = $request->validate([
                 'nama'           => 'required|string',
@@ -117,6 +168,12 @@ class DataController extends Controller
 
     public function updateTrashPrice(Request $request, $id)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json([
+                'galat' => 'Akses Ditolak: Perubahan master harga sampah desa hanya dapat diubah oleh Administrator Desa melalui Web Admin.'
+            ], 403);
+        }
+
         try {
             $item = TrashCategory::find($id);
             if (!$item) {
@@ -166,6 +223,12 @@ class DataController extends Controller
 
     public function destroyTrashPrice($id)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json([
+                'galat' => 'Akses Ditolak: Penghapusan kategori sampah hanya dapat dilakukan oleh Administrator Desa melalui Web Admin.'
+            ], 403);
+        }
+
         try {
             $item = TrashCategory::find($id);
             if ($item) {
@@ -180,11 +243,15 @@ class DataController extends Controller
     // ── Mitra ──────────────────────────────────────────────────────
     public function getPartners()
     {
-        return response()->json(Partner::with('pengguna')->get());
+        return response()->json(Partner::with(['pengguna', 'kategoriSampah'])->get());
     }
 
     public function storePartner(Request $request)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Penambahan pos bank sampah hanya dapat disahkan oleh Administrator Desa melalui Web Admin.'], 403);
+        }
+
         $data = $request->validate([
             'id_pengguna' => 'required|exists:pengguna,id',
             'nama'        => 'required',
@@ -198,8 +265,12 @@ class DataController extends Controller
 
     public function destroyPartner($id)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Penutupan atau penghapusan pos bank sampah adalah wewenang mutlak Administrator Desa.'], 403);
+        }
+
         Partner::findOrFail($id)->delete();
-        return response()->json(['pesan' => 'Berhasil dihapus']);
+        return response()->json(['pesan' => 'Pos bank sampah berhasil dihapus']);
     }
 
     // ── Edukasi ────────────────────────────────────────────────────
@@ -240,14 +311,30 @@ class DataController extends Controller
         } catch (\Exception $e) {
             // ignore
         }
-        return response()->json(Education::orderBy('dibuat_pada', 'desc')->get());
+        $educations = Education::orderBy('dibuat_pada', 'desc')->get();
+        // Sertakan atribut computed youtube_id dan has_video agar aplikasi mobile bisa render player
+        $educations->each(function ($item) {
+            $item->append(['youtube_id', 'has_video']);
+        });
+        return response()->json($educations);
     }
 
     public function uploadEducationPhoto(Request $request)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Hanya Administrator Desa yang dapat mengunggah foto edukasi.'], 403);
+        }
+
+        $request->validate([
+            'foto'   => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'photo'  => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'gambar' => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+            'file'   => 'nullable|file|mimes:jpeg,jpg,png,webp|max:2048',
+        ]);
+
         $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar') ?? $request->file('file');
         if (!$file || !$file->isValid()) {
-            return response()->json(['galat' => 'File gambar tidak valid atau tidak ditemukan'], 422);
+            return response()->json(['galat' => 'File gambar tidak valid atau format tidak didukung (Maks 2MB)'], 422);
         }
         $path = $file->store('edukasi', 'public');
         $url = $request->getSchemeAndHttpHost() . '/storage/' . $path;
@@ -259,12 +346,17 @@ class DataController extends Controller
 
     public function storeEducation(Request $request)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Penambahan artikel edukasi adalah wewenang Administrator Desa.'], 403);
+        }
+
         try {
             $data = $request->validate([
                 'judul'      => 'required|string|max:200',
                 'kategori'   => 'required|string|max:50',
                 'konten'     => 'required|string',
                 'url_gambar' => 'nullable|string',
+                'url_video'  => 'nullable|string|max:500',
             ]);
 
             // Jika ada file foto langsung diunggah dalam form
@@ -274,7 +366,7 @@ class DataController extends Controller
                 $data['url_gambar'] = $request->getSchemeAndHttpHost() . '/storage/' . $path;
             }
 
-            if (empty($data['url_gambar'])) {
+            if (empty($data['url_gambar']) && empty($data['url_video'])) {
                 $data['url_gambar'] = 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&auto=format&fit=crop&q=60';
             }
 
@@ -289,12 +381,16 @@ class DataController extends Controller
 
     public function updateEducation(Request $request, $id)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Pengubahan artikel edukasi adalah wewenang Administrator Desa.'], 403);
+        }
+
         try {
             $item = Education::find($id);
             if (!$item) {
                 return response()->json(['galat' => 'Artikel edukasi tidak ditemukan'], 404);
             }
-            $dataToUpdate = array_filter($request->only('judul', 'kategori', 'konten', 'url_gambar'), fn($val) => !is_null($val));
+            $dataToUpdate = array_filter($request->only('judul', 'kategori', 'konten', 'url_gambar', 'url_video'), fn($val) => !is_null($val));
 
             // Jika ada file foto langsung diunggah dalam form
             $file = $request->file('foto') ?? $request->file('photo') ?? $request->file('gambar');
@@ -312,6 +408,10 @@ class DataController extends Controller
 
     public function destroyEducation($id)
     {
+        if (auth()->user()?->peran !== 'ADMIN') {
+            return response()->json(['galat' => 'Akses Ditolak: Penghapusan artikel edukasi adalah wewenang Administrator Desa.'], 403);
+        }
+
         try {
             $item = Education::find($id);
             if ($item) {
@@ -342,6 +442,8 @@ class DataController extends Controller
                     $table->string('kategori');
                     $table->text('pesan');
                     $table->text('jawaban')->nullable();
+                    $table->string('status')->default('MENUNGGU');
+                    $table->string('pengirim')->default('NASABAH');
                     $table->uuid('id_mitra')->nullable();
                     $table->timestamp('dijawab_pada')->nullable();
                     $table->timestamp('dibuat_pada')->nullable();
@@ -349,6 +451,26 @@ class DataController extends Controller
 
                     $table->foreign('id_pengguna')->references('id')->on('pengguna')->onDelete('cascade');
                 });
+            } else {
+                if (!\Illuminate\Support\Facades\Schema::hasColumn('kritik_saran', 'status')) {
+                    \Illuminate\Support\Facades\Schema::table('kritik_saran', function ($table) {
+                        $table->string('status')->default('MENUNGGU')->after('jawaban');
+                    });
+                }
+                if (!\Illuminate\Support\Facades\Schema::hasColumn('kritik_saran', 'pengirim')) {
+                    \Illuminate\Support\Facades\Schema::table('kritik_saran', function ($table) {
+                        $table->string('pengirim')->default('NASABAH')->after('kategori');
+                    });
+                }
+
+                // Auto-sync status untuk data yang sudah memiliki jawaban
+                \Illuminate\Support\Facades\DB::table('kritik_saran')
+                    ->whereNotNull('jawaban')
+                    ->where('jawaban', '!=', '')
+                    ->where(function ($q) {
+                        $q->whereNull('status')->orWhere('status', '!=', 'DIJAWAB');
+                    })
+                    ->update(['status' => 'DIJAWAB']);
             }
         } catch (\Exception $e) {
             // ignore if already exists or fails gracefully
@@ -367,6 +489,8 @@ class DataController extends Controller
             'id_pengguna' => $request->user()->id,
             'kategori'    => $validated['kategori'],
             'pesan'       => $validated['pesan'],
+            'status'      => 'MENUNGGU',
+            'pengirim'    => 'NASABAH',
         ]);
 
         return response()->json($feedback->load('pengguna'), 201);
@@ -375,10 +499,20 @@ class DataController extends Controller
     public function getFeedbacks(Request $request)
     {
         $this->ensureFeedbackTableExists();
-        $feedbacks = Feedback::where('id_pengguna', $request->user()->id)
-            ->with('pengguna')
-            ->orderBy('dibuat_pada', 'desc')
-            ->get();
+        $user = $request->user();
+
+        // Admin dan Super Admin melihat semua feedback
+        if (in_array($user->role ?? '', ['ADMIN', 'SUPER_ADMIN'])) {
+            $feedbacks = Feedback::with('pengguna')
+                ->orderBy('dibuat_pada', 'desc')
+                ->get();
+        } else {
+            // Nasabah melihat feedback miliknya sendiri
+            $feedbacks = Feedback::where('id_pengguna', $user->id)
+                ->with('pengguna')
+                ->orderBy('dibuat_pada', 'desc')
+                ->get();
+        }
 
         return response()->json($feedbacks);
     }
@@ -386,11 +520,42 @@ class DataController extends Controller
     public function getMitraFeedbacks(Request $request)
     {
         $this->ensureFeedbackTableExists();
+        // Mitra hanya bisa lihat feedback yang dia kirim sendiri
         $feedbacks = Feedback::with('pengguna')
+            ->where('id_pengguna', $request->user()->id)
+            ->where('pengirim', 'MITRA')
             ->orderBy('dibuat_pada', 'desc')
             ->get();
 
         return response()->json($feedbacks);
+    }
+
+    public function submitMitraFeedback(Request $request)
+    {
+        $this->ensureFeedbackTableExists();
+
+        // Pastikan kolom pengirim ada di tabel feedback
+        try {
+            if (!\Illuminate\Support\Facades\Schema::hasColumn('kritik_saran', 'pengirim')) {
+                \Illuminate\Support\Facades\Schema::table('kritik_saran', function ($table) {
+                    $table->string('pengirim')->default('NASABAH')->after('kategori');
+                });
+            }
+        } catch (\Exception $e) { /* ignore */ }
+
+        $validated = $request->validate([
+            'pesan'    => 'required|string',
+            'kategori' => 'required|string',
+        ]);
+
+        $feedback = Feedback::create([
+            'id_pengguna' => $request->user()->id,
+            'kategori'    => $validated['kategori'],
+            'pesan'       => $validated['pesan'],
+            'pengirim'    => 'MITRA',
+        ]);
+
+        return response()->json($feedback->load('pengguna'), 201);
     }
 
     public function replyFeedback(Request $request, $id)
@@ -407,21 +572,18 @@ class DataController extends Controller
 
         $feedback->update([
             'jawaban'      => $validated['jawaban'],
+            'status'       => 'DIJAWAB',
             'dijawab_pada' => now(),
             'id_mitra'     => $request->user()->id,
         ]);
 
-        // Buat notifikasi untuk nasabah
-        try {
-            Notification::create([
-                'id_pengguna' => $feedback->id_pengguna,
-                'judul'       => 'Balasan Kritik & Saran',
-                'deskripsi'   => 'Mitra SIRKULO telah membalas: "' . \Illuminate\Support\Str::limit($validated['jawaban'], 60) . '"',
-                'jenis'       => 'FEEDBACK',
-            ]);
-        } catch (\Exception $e) {
-            // ignore notification failure
-        }
+        // Buat notifikasi untuk pengirim (nasabah atau mitra)
+        \App\Http\Controllers\Api\NotificationController::kirim(
+            $feedback->id_pengguna,
+            'Balasan Kritik & Saran 💬',
+            'Admin Desa membalas pesan Anda: "' . \Illuminate\Support\Str::limit($validated['jawaban'], 70) . '"',
+            'FEEDBACK'
+        );
 
         return response()->json($feedback->load('pengguna'));
     }

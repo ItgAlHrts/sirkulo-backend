@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
-use App\Models\User;
+use App\Models\Nasabah;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -12,7 +12,7 @@ class TransactionController extends Controller
 {
     public function index(Request $request)
     {
-        $transaksi = Transaction::with('mitra')
+        $transaksi = Transaction::with(['mitra', 'pengguna'])
             ->where('id_pengguna', $request->user()->id)
             ->orderBy('dibuat_pada', 'desc')
             ->get();
@@ -21,7 +21,7 @@ class TransactionController extends Controller
 
     public function show(Request $request, $id)
     {
-        $transaksi = Transaction::with('mitra')
+        $transaksi = Transaction::with(['mitra', 'pengguna'])
             ->where('id', $id)
             ->where('id_pengguna', $request->user()->id)
             ->first();
@@ -33,7 +33,7 @@ class TransactionController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'id_pengguna'    => 'required|exists:pengguna,id',
+            'id_pengguna'    => 'required|exists:nasabah,id',
             'id_mitra'       => 'required|exists:mitra,id',
             'jenis'          => 'required|in:SETORAN,PENARIKAN',
             'jumlah_total'   => 'required|integer|min:1',
@@ -54,7 +54,7 @@ class TransactionController extends Controller
                     'nomor_referensi' => $nomor_referensi,
                 ]);
 
-                $pengguna = User::find($request->id_pengguna);
+                $pengguna = Nasabah::find($request->id_pengguna);
                 if ($request->jenis === 'SETORAN') {
                     $pengguna->increment('saldo', $request->jumlah_total);
                 } elseif ($request->jenis === 'PENARIKAN') {
@@ -62,6 +62,26 @@ class TransactionController extends Controller
                 }
                 // Konversi Poin: 1 Poin = Rp 100
                 $pengguna->update(['poin' => (int) floor($pengguna->saldo / 100)]);
+
+                \App\Services\AuditLogger::log(
+                    $trx->jenis === 'SETORAN' ? 'TRANSAKSI_SETOR_SAMPAH' : 'TRANSAKSI_PENARIKAN_SALDO',
+                    "Transaksi {$trx->jenis} {$trx->nomor_referensi} senilai Rp " . number_format($trx->jumlah_total, 0, ',', '.') . " oleh nasabah '{$pengguna->nama}'.",
+                    'TRANSAKSI',
+                    'TRANSACTION',
+                    'SUKSES',
+                    [
+                        'nomor_referensi' => $nomor_referensi,
+                        'jenis'           => $trx->jenis,
+                        'nominal'         => $trx->jumlah_total,
+                        'poin'            => $trx->poin_didapat,
+                        'id_nasabah'      => $pengguna->id,
+                        'nama_nasabah'    => $pengguna->nama,
+                        'id_mitra'        => $request->id_mitra,
+                    ],
+                    $request->user()?->id,
+                    $request->user()?->nama,
+                    $request->user()?->peran
+                );
 
                 return $trx;
             });
@@ -74,21 +94,8 @@ class TransactionController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $trx = Transaction::find($id);
-        if (!$trx) return response()->json(['galat' => 'Transaksi tidak ditemukan'], 404);
-
-        DB::transaction(function () use ($trx) {
-            $pengguna = User::find($trx->id_pengguna);
-            if ($trx->jenis === 'SETORAN') {
-                $pengguna->decrement('saldo', $trx->jumlah_total);
-            } elseif ($trx->jenis === 'PENARIKAN') {
-                $pengguna->increment('saldo', $trx->jumlah_total);
-            }
-            // Kembalikan & sinkronkan poin (1 Poin = Rp 100)
-            $pengguna->update(['poin' => (int) floor($pengguna->saldo / 100)]);
-            $trx->delete();
-        });
-
-        return response()->json(['pesan' => 'Transaksi berhasil dihapus dan saldo dikembalikan']);
+        return response()->json([
+            'galat' => 'Akses Ditolak: Seluruh transaksi keuangan bersifat mutlak dan tidak dapat dihapus untuk menjaga keabsahan pembukuan dan audit kas desa.'
+        ], 403);
     }
 }

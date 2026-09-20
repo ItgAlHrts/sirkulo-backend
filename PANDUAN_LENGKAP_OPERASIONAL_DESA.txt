@@ -1,0 +1,175 @@
+================================================================================
+          PANDUAN LENGKAP PENGELOLAAN & PEMELIHARAAN SISTEM
+             BANK SAMPAH DIGITAL DESA — "SIRKULO"
+================================================================================
+Dokumen ini disusun sebagai panduan resmi operasional, tata kelola wewenang,
+dan prosedur pemeliharaan teknis sistem aplikasi SIRKULO setelah serah terima
+dari pengembang kepada Pemerintah Desa / BUMDes.
+
+Tanggal Penyusunan : September 2026
+Versi Aplikasi     : SIRKULO v2.0 (Laravel Web Admin + Kotlin Android)
+================================================================================
+
+
+BAGIAN 1: STRUKTUR PENGGUNA & PEMISAHAN WEWENANG (ROLE-BASED ACCESS)
+--------------------------------------------------------------------------------
+Untuk melindungi keamanan data tabungan dan mencegah kecurangan (fraud) di lapangan,
+sistem SIRKULO menerapkan pemisahan hak akses yang sangat ketat:
+
+1. ADMINISTRATOR DESA (Web Admin - Diakses via Laptop/PC Kantor Desa):
+   - Merupakan otoritas tertinggi dalam pengelolaan bank sampah desa.
+   - Hak Akses:
+     ✓ Mengatur master harga beli sampah dari warga dan harga jual ke pengepul.
+     ✓ Menentukan margin keuntungan kas desa/BUMDes.
+     ✓ Mengakses rekapitulasi laporan bulanan dan mencetak laporan resmi (PDF).
+     ✓ Mereset password akun warga jika warga lupa kata sandi.
+     ✓ Menghapus akun nasabah jika ada warga yang pindah domisili.
+     ✓ Melakukan backup database sekali klik dan pemeliharaan server.
+     ✓ Menambah atau mengatur akun petugas pos dan sesama administrator.
+
+2. PETUGAS POS BANK SAMPAH / MITRA (Aplikasi Android HP di Loket Pos):
+   - Merupakan petugas operasional harian di pos-pos unit RT/RW.
+   - Hak Akses Terbatas (Murni Operasional):
+     ✓ Menimbang sampah dan mencatat setoran warga (masuk saldo / tunai).
+     ✓ Melayani penarikan tunai saldo tabungan warga di loket.
+     ✓ Mendaftarkan warga baru yang datang ke pos.
+     ✓ Melihat katalog harga resmi desa (Hanya Baca / Read-Only).
+   - DILARANG / DIKUNCI OLEH SISTEM:
+     ✕ Petugas TIDAK BISA menghapus akun nasabah.
+     ✕ Petugas TIDAK BISA mereset kata sandi nasabah secara sepihak.
+     ✕ Petugas TIDAK BISA menambah, mengedit, atau menghapus harga sampah.
+     ✕ Petugas TIDAK BISA menghapus cabang pos unit.
+     (Semua upaya pelanggaran akan ditolak otomatis oleh server: HTTP 403 Forbidden).
+
+3. WARGA / NASABAH (Aplikasi Android HP Warga):
+   - Melihat saldo tabungan dan akumulasi poin daur ulang secara transparan.
+   - Melihat riwayat setoran dan penarikan yang pernah dilakukan.
+   - Melihat daftar harga sampah resmi yang berlaku di desa.
+   - Mengirim kritik & saran ke pos bank sampah.
+
+
+BAGIAN 2: PANDUAN PENGGUNAAN WEBSITE ADMIN DESA
+--------------------------------------------------------------------------------
+Website Admin diakses menggunakan Google Chrome atau browser lain di laptop kantor.
+
+A. CARA LOGIN:
+   1. Buka browser, akses alamat:
+      - Mode Lokal/Testing : http://127.0.0.1:8000/admin/login
+      - Mode Server Online : https://[domain-desa-anda]/admin/login
+   2. Masukkan akun administrator desa default:
+      - Email    : admin@sirkulo.id
+      - Password : admindesa2026
+   3. Klik tombol "Masuk ke Panel Admin".
+
+B. MENU-MENU WEBSITE ADMIN:
+   1. Dashboard:
+      - Ringkasan statistik real-time: Total Warga Terdaftar, Total Pos Unit,
+        Jumlah Transaksi Bulan Ini, dan Total Saldo Tabungan Warga.
+      - Grafik perkembangan setoran sampah 6 bulan terakhir.
+      - Tabel 5 aktivitas transaksi terkini.
+
+   2. Kelola Nasabah (/admin/nasabah):
+      - Tabel seluruh warga nasabah di desa lengkap dengan saldo dan kode anggota.
+      - Kotak pencarian kilat untuk mencari nama, no. HP, atau email warga.
+      - Tombol Detail: Menampilkan profil warga dan 20 riwayat transaksi terakhir.
+      - Tombol Edit: Mengubah alamat atau mereset password nasabah yang lupa.
+      - Tombol Hapus: Menghapus data nasabah secara aman (dengan konfirmasi).
+
+   3. Mitra & Pos (/admin/mitra):
+      - Daftar seluruh pos cabang bank sampah di tingkat dusun/RT/RW.
+      - Monitoring performa masing-masing pos (total tonase setoran & perputaran kas).
+
+   4. Master Harga Sampah (/admin/harga-sampah):
+      - Tabel penetapan harga resmi desa per kilogram.
+      - Kolom "Harga Beli Warga": Nominal uang yang diterima warga saat setor.
+      - Kolom "Harga Jual Pengepul": Harga jual desa ke pengepul daur ulang.
+      - Margin Desa dihitung otomatis oleh sistem, menampilkan persentase keuntungan.
+      - Cukup ubah angka di kotak yang disediakan lalu klik "Simpan".
+
+   5. Laporan & Rekapitulasi (/admin/laporan):
+      - Filter transaksi berdasarkan Bulan dan Tahun yang diinginkan.
+      - Menampilkan arus kas bersih: Surplus/Defisit perputaran uang sampah.
+      - Tombol "Cetak / Simpan PDF": Format resmi siap cetak lengkap dengan kolom
+        tanda tangan Kepala Desa/Direktur BUMDes dan Pengurus Bank Sampah.
+
+   6. Edukasi Warga (/admin/edukasi):
+      - Menerbitkan artikel tips pemilahan sampah, panduan daur ulang, dan poster
+        edukasi yang langsung tampil di layar depan aplikasi HP warga desa.
+      - Mengunggah foto dan mengedit isi materi secara mandiri.
+
+   7. Kritik & Saran Warga (/admin/feedback):
+      - Membaca semua aduan, masukan, kritik, dan saran yang dikirim warga dari aplikasi.
+      - Menulis balasan resmi pengurus desa yang akan langsung muncul di HP warga.
+
+   8. Kelola Pengguna (/admin/pengguna):
+      - Mendaftarkan akun Administrator Desa baru bagi staf kantor desa.
+      - Mengganti password akun admin atau akun petugas pos lapangan secara mandiri.
+
+   9. Sistem & Pemeliharaan Server (/admin/sistem):
+      - Memantau kesehatan server, versi Laravel, versi PHP, dan ukuran database.
+      - Memeriksa keabsahan dan kestabilan paket pustaka dependensi framework.
+      - Tombol "Bersihkan Cache": Klik tombol ini jika ada update aplikasi.
+      - Tombol "Optimasi Sistem": Meningkatkan performa kecepatan respon web.
+      - Tombol "Tautkan Storage": Memastikan foto sampah dan profil tampil normal.
+      - Tombol "Unduh Backup (.sql)": Download cadangan seluruh database desa
+        hanya dengan SATU KLIK ke laptop tanpa perlu buka cPanel/terminal!
+
+
+BAGIAN 3: JADWAL RUTIN PEMELIHARAAN SISTEM
+--------------------------------------------------------------------------------
+Agar sistem terus berjalan stabil tanpa kendala teknis, ikuti jadwal rutin berikut:
+
+1. SETIAP BULAN (Tanggal 1 atau saat tutup buku):
+   a. Masuk ke Web Admin -> Menu "Sistem & Server".
+   b. Klik tombol "Unduh Backup (.sql)". File database akan langsung terunduh.
+   c. Simpan file hasil unduhan ke Google Drive milik desa dengan format nama:
+      Contoh: "Backup_Sirkulo_September_2026.sql".
+   d. Masuk ke Menu "Laporan", pilih bulan sebelumnya, klik "Cetak / Simpan PDF"
+      sebagai arsip laporan pertanggungjawaban BUMDes.
+
+2. SETIAP 6 BULAN SEKALI:
+   a. Masuk ke Menu "Kelola Pengguna", ganti password akun admin desa demi keamanan.
+   b. Lakukan klik tombol "Bersihkan Cache" lalu "Optimasi Sistem" di Menu Sistem.
+
+3. SETIAP TAHUN SEKALI (Pembaruan Laravel & Dependensi Server):
+   Bisa dilakukan oleh staf IT desa atau dibantu oleh teknisi kampus/mitra IT.
+   Langkah teknisnya:
+   a. Buka terminal/SSH di hosting server.
+   b. Masuk ke direktori sirkulo-laravel:
+      cd /path/to/sirkulo-laravel
+   c. Jalankan perintah pembaruan library keamanan:
+      composer update --no-dev
+   d. Jalankan perintah migrasi jika ada struktur tabel baru:
+      php artisan migrate --force
+   e. Bersihkan dan optimalkan cache:
+      php artisan optimize:clear
+      php artisan optimize
+
+
+BAGIAN 4: CHECKLIST KEAMANAN SISTEM (SECURITY CHECKLIST)
+--------------------------------------------------------------------------------
+Sebelum aplikasi digunakan secara luas oleh seluruh warga desa, pastikan:
+
+[✓] Kredensial Admin Default Diganti:
+    Segera ganti password default `admindesa2026` dengan password yang kuat
+    melalui menu Kelola Pengguna di Web Admin.
+
+[✓] Mode Debug Dinonaktifkan di Server Hosting Resmi:
+    Pastikan file `.env` di server production memiliki baris:
+    APP_DEBUG=false
+    (Jika APP_DEBUG bernilai true, pesan error teknis database dapat terlihat publik).
+
+[✓] Menggunakan Protokol HTTPS (SSL):
+    Domain website desa wajib mengaktifkan SSL/HTTPS (ikon gembok aman) agar
+    kata sandi dan saldo warga tidak dapat disadap di jaringan WiFi publik.
+
+[✓] Perlindungan Anti Brute-Force Telah Aktif:
+    Sistem SIRKULO sudah dilengkapi proteksi pembatasan 10 kali percobaan login
+    per menit untuk menggagalkan upaya peretasan tebak kata sandi.
+
+[✓] Data Terproteksi dari Double-Spend / Race Condition:
+    Transaksi penarikan tunai dan setoran sampah menggunakan sistem penguncian baris
+    database atomik (lockForUpdate) sehingga saldo warga tidak akan pernah minus.
+================================================================================
+                      © 2026 SIRKULO — BANK SAMPAH DIGITAL DESA
+================================================================================

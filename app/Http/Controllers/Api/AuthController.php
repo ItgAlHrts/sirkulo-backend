@@ -3,147 +3,143 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Models\Nasabah;
+use App\Models\PetugasMitra;
+use App\Models\Partner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Carbon;
 
 class AuthController extends Controller
 {
-    // ── Daftar ────────────────────────────────────────────────────
+    // ── Daftar Nasabah Baru ──────────────────────────────────────────
     public function register(Request $request)
     {
         $request->validate([
             'nama'        => 'required|string',
-            'email'       => 'required|email|unique:pengguna,email',
+            'email'       => 'required|email|unique:nasabah,email',
             'kata_sandi'  => 'required|min:6',
             'telepon'     => 'required|string',
         ]);
 
-        $pengguna = User::create([
+        $nasabah = Nasabah::create([
             'nama'       => $request->nama,
             'email'      => $request->email,
             'kata_sandi' => Hash::make($request->kata_sandi),
             'telepon'    => $request->telepon,
-            'peran'      => $request->peran ?? 'NASABAH',
+            'peran'      => 'NASABAH',
+            'saldo'      => 0,
+            'poin'       => 0,
+            'kode_user'  => Nasabah::generateKodeUser(),
         ]);
 
         return response()->json([
             'pesan'     => 'Registrasi berhasil',
-            'pengguna'  => ['id' => $pengguna->id, 'email' => $pengguna->email],
+            'pengguna'  => ['id' => $nasabah->id, 'email' => $nasabah->email],
         ], 201);
     }
 
-    // ── Masuk ─────────────────────────────────────────────────────
+    // ── Masuk (Hanya untuk Nasabah & Petugas Mitra) ──────────────────
     public function login(Request $request)
     {
         $request->validate([
             'email'      => 'required|email',
             'kata_sandi' => 'required',
+        ], [
+            'email.required'      => 'Email wajib diisi.',
+            'email.email'         => 'Format email tidak valid. Masukkan alamat email yang benar.',
+            'kata_sandi.required' => 'Kata sandi wajib diisi.',
         ]);
 
-        // Auto-provisioning & migrasi akun Mitra Universal
-        $mitraEmails = ['mitrasirkulo@gmail.com', 'udin@gmail.com', 'mitra@gmail.com'];
-        if (in_array(strtolower($request->email), $mitraEmails) && in_array($request->kata_sandi, ['sirkulo2026', 'password123'])) {
-            // Cari apakah sudah ada user mitra sebelumnya (udin / mitra / mitrasirkulo)
-            $pengguna = User::whereIn('email', $mitraEmails)->first();
-            if ($pengguna) {
-                $pengguna->update([
-                    'email'      => 'mitrasirkulo@gmail.com',
-                    'kata_sandi' => Hash::make('sirkulo2026'),
-                    'nama'       => 'Mitra SIRKULO',
-                    'peran'      => 'MITRA',
-                ]);
-            } else {
-                $pengguna = User::create([
-                    'nama'       => 'Mitra SIRKULO',
-                    'email'      => 'mitrasirkulo@gmail.com',
-                    'kata_sandi' => Hash::make('sirkulo2026'),
-                    'telepon'    => '08123456789',
-                    'alamat'     => 'Jl. Pahlawan No. 1, Semarang',
-                    'saldo'      => 850000,
-                    'poin'       => 0,
-                    'peran'      => 'MITRA',
-                ]);
-            }
+        $email = trim($request->email);
 
-            // Buat Pos awal hanya jika database benar-benar kosong (belum ada Pos sama sekali)
-            try {
-                if (\App\Models\Partner::count() === 0) {
-                    \App\Models\Partner::create([
-                        'id_pengguna' => $pengguna->id,
-                        'nama'        => 'Pos 1 - Bank Sampah Maju Jaya',
-                        'alamat'      => 'Jl. Pahlawan No. 1, Semarang Tengah',
-                        'lintang'     => -6.9932,
-                        'bujur'       => 110.4203,
-                        'jam_buka'    => 'Senin - Sabtu, 08:00 - 16:00 WIB',
-                    ]);
+        // Hapus akun dummy mitrasirkulo@gmail.com yang sempat dibuat otomatis oleh bug lama
+        try {
+            PetugasMitra::where('email', 'mitrasirkulo@gmail.com')->delete();
+        } catch (\Throwable $e) {}
 
-                    \App\Models\Partner::create([
-                        'id_pengguna' => $pengguna->id,
-                        'alamat'      => 'Jl. Pemuda No. 15, Pandansari',
-                        'lintang'     => -6.9821,
-                        'bujur'       => 110.4125,
-                        'jam_buka'    => 'Senin - Jumat, 08:30 - 15:30 WIB',
-                    ]);
+        // 1. Cek di tabel petugas_mitra (HANYA berdasarkan email)
+        $pengguna = PetugasMitra::where('email', $email)->first();
 
-                    \App\Models\Partner::create([
-                        'id_pengguna' => $pengguna->id,
-                        'alamat'      => 'Jl. Pandanaran No. 8, Mugassari',
-                        'lintang'     => -6.9912,
-                        'bujur'       => 110.4180,
-                        'jam_buka'    => 'Setiap Hari, 08:00 - 17:00 WIB',
-                    ]);
-                } else {
-                    // Hubungkan Pos yang belum memiliki pemilik ke akun Mitra ini
-                    \App\Models\Partner::whereNull('id_pengguna')->update(['id_pengguna' => $pengguna->id]);
-                }
-            } catch (\Exception $e) {
-                // ignore
-            }
-        } elseif (strtolower($request->email) === 'itang@gmail.com' && $request->kata_sandi === 'password123') {
-            $pengguna = User::updateOrCreate(
-                ['email' => 'itang@gmail.com'],
-                [
-                    'nama'       => 'Itang Al Harits',
-                    'kata_sandi' => Hash::make('password123'),
-                    'telepon'    => '082342270844',
-                    'alamat'     => 'Kedungmundu, Tembalang, Kota Semarang',
-                    'saldo'      => 55000,
-                    'poin'       => 550,
-                    'peran'      => 'NASABAH',
-                ]
-            );
-        } else {
-            $pengguna = User::where('email', $request->email)->first();
+        // 2. Jika bukan petugas mitra, cek di tabel nasabah (HANYA berdasarkan email)
+        if (!$pengguna) {
+            $pengguna = Nasabah::where('email', $email)->first();
         }
 
-        if (!$pengguna || (!Hash::check($request->kata_sandi, $pengguna->kata_sandi) && $request->kata_sandi !== 'sirkulo2026')) {
-            return response()->json(['galat' => 'Email atau kata sandi salah'], 401);
+        // 3. Verifikasi pengguna dan kata sandi
+        if (!$pengguna || !Hash::check($request->kata_sandi, $pengguna->kata_sandi)) {
+            return response()->json([
+                'galat' => 'Email atau kata sandi tidak sesuai.'
+            ], 401);
         }
 
         $token = $pengguna->createToken('token_auth')->plainTextToken;
 
-        return response()->json([
+        $posData = null;
+        if ($pengguna->peran === 'MITRA') {
+            // Bersihkan pos duplikat tanpa transaksi yang sempat terbuat otomatis
+            try {
+                Partner::where(function ($q) {
+                    $q->where('nama', 'like', 'Pos % - Mitra SIRKULO%')
+                      ->orWhere('nama', 'like', 'Pos % - Bank Sampah Unit%');
+                })->get()->each(function ($p) {
+                    if (\App\Models\Transaction::where('id_mitra', $p->id)->count() === 0) {
+                        $p->delete();
+                    }
+                });
+            } catch (\Throwable $e) {}
+
+            // Cari pos yang ditugaskan khusus ke akun petugas ini oleh Administrator
+            $partner = Partner::where('id_pengguna', $pengguna->id)->first();
+
+            // Jika petugas belum ditugaskan ke pos manapun oleh Admin, otomatis tautkan ke pos resmi yang tersedia
+            if (!$partner) {
+                $partner = Partner::whereNull('id_pengguna')->first() ?? Partner::first();
+                if ($partner) {
+                    $partner->update(['id_pengguna' => $pengguna->id]);
+                }
+            }
+
+            if (!$partner) {
+                return response()->json([
+                    'galat' => 'Belum ada unit pos bank sampah yang terdaftar di sistem. Silakan hubungi Administrator Desa.'
+                ], 403);
+            }
+
+            $posData = [
+                'id'       => $partner->id,
+                'nama_pos' => $partner->nama,
+                'kode_pos' => $partner->kode_pos,
+                'alamat'   => $partner->alamat,
+                'jam_buka' => $partner->jam_buka,
+            ];
+        }
+
+        $response = [
             'pesan'  => 'Masuk berhasil',
             'token'  => $token,
             'peran'  => $pengguna->peran,
             'nama'   => $pengguna->nama,
-        ]);
+        ];
+        if ($posData) {
+            $response['pos'] = $posData;
+        }
+
+        return response()->json($response);
     }
 
-    // ── Lupa Kata Sandi – Buat OTP ────────────────────────────────
+    // ── Lupa Kata Sandi – Buat OTP (Nasabah) ───────────────────────
     public function forgotPassword(Request $request)
     {
         $request->validate(['email' => 'required|email']);
 
-        $pengguna = User::where('email', $request->email)->first();
+        $pengguna = Nasabah::where('email', $request->email)->first();
         if (!$pengguna) {
             return response()->json(['galat' => 'Email tidak terdaftar'], 404);
         }
 
-        $otp           = str_pad(rand(100000, 999999), 6, '0', STR_PAD_LEFT);
-        $kadaluarsa    = Carbon::now()->addMinutes(15);
+        $otp        = str_pad(rand(100000, 999999), 6, '0', STR_PAD_LEFT);
+        $kadaluarsa = Carbon::now()->addMinutes(15);
 
         $pengguna->update(['otp_reset' => $otp, 'kadaluarsa_otp' => $kadaluarsa]);
 
@@ -155,23 +151,23 @@ class AuthController extends Controller
         ]);
     }
 
-    // ── Reset Kata Sandi ──────────────────────────────────────────
+    // ── Reset Kata Sandi (Nasabah) ─────────────────────────────────
     public function resetPassword(Request $request)
     {
         $request->validate([
-            'email'          => 'required|email',
-            'otp'            => 'required',
+            'email'           => 'required|email',
+            'otp'             => 'required',
             'kata_sandi_baru' => 'required|min:6',
         ]);
 
-        $pengguna = User::where('email', $request->email)->first();
-        if (!$pengguna)                                              return response()->json(['galat' => 'Email tidak ditemukan'], 404);
-        if ($pengguna->otp_reset !== $request->otp)                 return response()->json(['galat' => 'OTP tidak valid'], 400);
-        if (Carbon::now()->isAfter($pengguna->kadaluarsa_otp))      return response()->json(['galat' => 'OTP sudah kadaluarsa'], 400);
+        $pengguna = Nasabah::where('email', $request->email)->first();
+        if (!$pengguna)                                         return response()->json(['galat' => 'Email tidak ditemukan'], 404);
+        if ($pengguna->otp_reset !== $request->otp)            return response()->json(['galat' => 'OTP tidak valid'], 400);
+        if (Carbon::now()->isAfter($pengguna->kadaluarsa_otp)) return response()->json(['galat' => 'OTP sudah kadaluarsa'], 400);
 
         $pengguna->update([
-            'kata_sandi'    => Hash::make($request->kata_sandi_baru),
-            'otp_reset'     => null,
+            'kata_sandi'     => Hash::make($request->kata_sandi_baru),
+            'otp_reset'      => null,
             'kadaluarsa_otp' => null,
         ]);
 

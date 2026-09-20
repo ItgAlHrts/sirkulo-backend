@@ -1,0 +1,374 @@
+================================================================================
+          BUKU PANDUAN BEDAH SISTEM & DOKUMEN REFLEKSI APLIKASI
+                 "SIRKULO" — BANK SAMPAH DIGITAL DESA
+================================================================================
+Disusun sebagai: 
+1. Buku Panduan Bedah Fitur Lengkap (Software Architecture & Feature Breakdown)
+2. Buku Refleksi Pengembangan & Serah Terima Aplikasi kepada Pemerintah Desa
+3. Dokumentasi Standar Operasional Prosedur (SOP) Tata Kelola Digital BUMDes
+
+Tahun Penyusunan : 2026
+Teknologi        : Laravel 12 (v12.64.0, PHP 8.2.12) Backend & Web Admin + Kotlin Jetpack Compose Android
+Status Rilis     : Versi 2.0 (Security Hardened & Enterprise Village Ready)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+DAFTAR ISI BUKU PANDUAN
+--------------------------------------------------------------------------------
+BAB 1 : LATAR BELAKANG, VISI PRODUK, & KONSEP EKOSISTEM
+BAB 2 : ARSITEKTUR TEKNOLOGI & INFRASTRUKTUR SISTEM
+BAB 3 : BEDAH FITUR APLIKASI MOBILE NASABAH (WARGA DESA)
+BAB 4 : BEDAH FITUR APLIKASI MOBILE MITRA (PETUGAS POS LAPANGAN)
+BAB 5 : BEDAH FITUR WEBSITE ADMIN PANEL DESA (KANTOR DESA / BUMDES)
+BAB 6 : KEAMANAN SISTEM, RBAC & INTEGRITAS DATA KEUANGAN
+BAB 7 : REFLEKSI PENGEMBANGAN & DAMPAK SOSIAL-EKONOMI DESA
+BAB 8 : PEDOMAN KONTINUITAS & PEMELIHARAAN JANGKA PANJANG
+================================================================================
+
+
+================================================================================
+BAB 1 : LATAR BELAKANG, VISI PRODUK, & KONSEP EKOSISTEM
+================================================================================
+
+1.1 Latar Belakang Masalah
+Bank sampah konvensional di tingkat desa umumnya menghadapi 4 kendala utama:
+1. Pembukuan Manual: Buku tabungan fisik mudah sobek, tercecer, dan rentan salah
+   hitung saat penjumlahan setoran maupun penarikan kas.
+2. Ketidaktransparanan Harga: Warga tidak mengetahui harga resmi sampah per kilogram
+   sehingga timbul kecurigaan pemotongan harga sepihak oleh petugas timbangan.
+3. Lambatnya Rekapitulasi BUMDes: Kantor desa kesulitan merekap perputaran uang
+   dan tonase sampah dari banyak pos dusun/RW karena menunggu laporan kertas fisik.
+4. Partisipasi Rendah: Warga enggan memilah sampah karena kurangnya apresiasi
+   dan tidak adanya sistem pencatatan poin reward yang jelas.
+
+1.2 Visi Solusi SIRKULO
+SIRKULO dirancang sebagai ekosistem digital terpadu (Integrated Digital Ecosystem)
+yang mentransformasikan tata kelola bank sampah desa menjadi transparan, otomatis,
+dan memiliki tata kelola keuangan yang akuntabel.
+
+1.3 Konsep Tiga Pilar Pengguna (Three-Tier User Ecosystem)
+Sistem membagi peran secara presisi agar tidak terjadi tumpang tindih wewenang:
+• WARGA / NASABAH : Menikmati transparansi saldo, riwayat, dan edukasi pilah sampah.
+• PETUGAS POS / MITRA : Pelaksana operasional timbangan, loket setoran, dan kasir.
+• PEMERINTAH DESA / ADMIN : Pengambil kebijakan harga, pemantau laporan, dan pengelola akun.
+
+
+================================================================================
+BAB 2 : ARSITEKTUR TEKNOLOGI & INFRASTRUKTUR SISTEM
+================================================================================
+
+2.1 Arsitektur Backend & API
+• Framework         : Laravel 12 (v12.64.0, PHP 8.2.12)
+• Basis Data        : MySQL / MariaDB Relational Database
+• Protokol          : RESTful API Berbasis JSON
+• Keamanan API      : Token Berkelanjutan via Laravel Sanctum (Anti-CSRF & Bearer)
+• Keamanan Web Admin: Session-based Authentication dengan Custom AdminMiddleware
+• Lapisan Keamanan  : Global Security Headers (Anti-XSS, Anti-Clickjack, MIME Sniff Guard)
+• Pembatas Trafik   : Throttle Rate Limiting (10 req/menit untuk Auth, 60 req/menit untuk Data)
+
+2.2 Arsitektur Aplikasi Mobile (Android)
+• Bahasa Pemrograman: Kotlin Native
+• UI Framework      : Jetpack Compose (Declarative Modern UI, Single-Activity Architecture)
+• Desain Sistem     : Material 3 Theme (Green Palette & Modern Micro-interactions)
+• Jaringan & Parser : Retrofit 2 + Gson Converter + OkHttp3 Logging Interceptor
+• Pemrosesan Gambar : Coil (Image loading & caching hemat kuota)
+• State Management  : ViewModel + Coroutine Flow + Snapshot State
+
+2.3 Arsitektur Website Admin Desa
+• Template Engine   : Laravel Blade
+• Styling           : Tailwind CSS Modern Dashboard Architecture
+• Visualisasi Grafik: Chart.js Canvas Interactive Rendering
+• Mesin Backup Data : Native PHP Streaming SQL Dumper (100% tanpa dependensi mysqldump CLI)
+• Output Laporan    : Printable CSS Media Queries (Cetak Langsung / Simpan PDF Resmi Desa)
+
+
+================================================================================
+BAB 3 : BEDAH FITUR APLIKASI MOBILE NASABAH (WARGA DESA)
+================================================================================
+Aplikasi ini ditujukan bagi warga desa yang menabung sampah di unit-unit pos bank sampah.
+
+1. Registrasi & Onboarding Warga:
+   - Formulir pendaftaran mudah: Nama Lengkap, Nomor HP/WhatsApp, Kata Sandi.
+   - Pilihan Alamat Presisi: RT/RW, Dusun, Desa, Kecamatan, dan Kabupaten.
+   - Verifikasi unik nomor HP untuk mencegah kepemilikan akun ganda.
+
+2. Dashboard Utama Warga:
+   - Kartu Tabungan Digital: Menampilkan Total Saldo Rupiah (Rp) dan Akumulasi Poin Reward.
+   - Kode Anggota Warga (ID Nasabah): Ditampilkan jelas untuk memudahkan pencarian oleh petugas pos.
+   - Menu Cepat (Quick Actions): Akses langsung ke Riwayat, Katalog Harga, Peta Pos, dan Edukasi.
+   - Banner Informasi & Motivasi: Kutipan manfaat ekonomi dari daur ulang sampah.
+
+3. Mutasi & Riwayat Transaksi Transparan:
+   - Daftar seluruh transaksi historis (Setoran Sampah & Penarikan Uang Tunai).
+   - Rincian Transaksi Lengkap:
+     * Tanggal & jam transaksi.
+     * Pos unit tempat warga bertransaksi.
+     * Nama petugas pos yang melayani.
+     * Rincian kilogram per kategori sampah yang disetor.
+     * Nominal uang yang masuk ke saldo atau uang tunai yang ditarik.
+     * Poin reward yang diperoleh.
+
+4. Katalog Harga Sampah Resmi:
+   - Warga dapat memantau harga beli resmi yang ditetapkan oleh Pemerintah Desa.
+   - Menampilkan tarif per kilogram untuk setiap kategori sampah (Kardus, Botol Plastik, Logam, Tembaga, Minyak Jelantah, dll).
+   - Dilengkapi galeri foto contoh sampah yang memenuhi syarat penerimaan loket.
+
+5. Lokasi Pos Bank Sampah Terdekat:
+   - Menampilkan daftar pos-pos unit yang tersebar di wilayah dusun/RW.
+   - Informasi jam operasional dan status loket (Sedang Buka / Tutup).
+   - Alamat lengkap dan nomor kontak petugas pos yang bertugas.
+
+6. Modul Edukasi Daur Ulang:
+   - Warga dapat membaca artikel-artikel menarik seputar tips memilah sampah organik dan anorganik.
+   - Panduan mengenali kode daur ulang plastik (PET, HDPE, PVC, dll).
+   - Tips mengolah sampah dapur menjadi pupuk kompos ramah lingkungan.
+
+7. Saluran Kritik, Saran & Aduan:
+   - Warga dapat menyampaikan masukan, keluhan pelayanan pos, atau usulan langsung dari aplikasi.
+   - Warga dapat memantau jawaban resmi yang diberikan oleh Kantor Desa / BUMDes.
+
+8. Profil & Keamanan Akun Mandiri:
+   - Ubah kata sandi akun secara mandiri kapan saja.
+   - Pembaruan informasi alamat dan kontak pribadi.
+   - Unggah foto profil pribadi.
+
+
+================================================================================
+BAB 4 : BEDAH FITUR APLIKASI MOBILE MITRA (PETUGAS POS LAPANGAN)
+================================================================================
+Aplikasi ini digunakan oleh petugas loket di pos-pos dusun/RW saat melayani warga.
+
+1. Pembatasan Hak Akses Khusus Petugas (Strict Role Boundary):
+   - Murni operasional penimbangan dan kasir.
+   - DIKUNCI OLEH SISTEM: Petugas TIDAK BISA menghapus nasabah, TIDAK BISA mereset
+     password warga, dan TIDAK BISA mengubah harga sampah (kewenangan eksklusif Admin Desa).
+
+2. Dashboard Operasional Pos:
+   - Kartu Metrik Harian: Total kilogram sampah diterima hari ini, estimasi nilai uang,
+     dan jumlah warga yang datang bertransaksi.
+   - Grafik Performa Pos: Grafik batang tren setoran mingguan dan bulanan di pos bersangkutan.
+   - Status Buka/Tutup Loket: Tombol cepat untuk mengubah status operasional loket pos.
+
+3. Pencarian & Verifikasi Nasabah Cepat:
+   - Kotak pencarian cerdas: Cari nasabah berdasarkan Nama, Nomor HP, atau Kode Anggota.
+   - Tampilan profil singkat nasabah, total saldo tersimpan, dan riwayat setoran sebelumnya.
+
+4. Kasir Penimbangan Sampah Digital (Core Engine):
+   - Pemilihan kategori sampah yang disetor warga.
+   - Input berat timbangan dalam kilogram (kg) dengan dukungan desimal.
+   - Kalkulasi otomatis nilai rupiah berdasarkan tarif resmi desa.
+   - Pilihan Metode Pembayaran:
+     a. "Masuk Saldo Tabungan" : Uang otomatis bertambah ke tabungan digital nasabah.
+     b. "Tunai Langsung"       : Petugas menyerahkan uang tunai di tempat tanpa mengubah saldo.
+   - Kalkulasi poin otomatis: 1 poin per kelipatan nominal transaksi.
+   - Penerbitan nomor referensi transaksi unik otomatis (TRX-XXXXXXXX).
+
+5. Pelayanan Penarikan Tunai Saldo Warga (Cash-Out):
+   - Warga dapat mencairkan tabungannya menjadi uang tunai di loket pos.
+   - Petugas menginput nominal penarikan yang diminta warga.
+   - Sistem melakukan verifikasi saldo secara atomik dengan proteksi Concurrency Lock
+     (pencairan ditolak jika saldo tidak mencukupi, mencegah saldo minus).
+
+6. Pendaftaran Nasabah Baru di Loket:
+   - Memfasilitasi pendaftaran warga lanjut usia atau warga yang tidak membawa HP.
+   - Petugas menginput identitas warga dan langsung menghasilkan akun tabungan aktif.
+
+7. Katalog Harga Resmi (Read-Only):
+   - Petugas dapat melihat acuan harga resmi yang ditetapkan desa sebagai pedoman timbangan.
+   - Dilengkapi badge hijau "Resmi Desa" dan tombol preview foto contoh sampah.
+   - Tidak ada tombol edit/hapus sehingga petugas terbebas dari tuduhan mengubah harga sepihak.
+
+8. Respon Masukan Warga:
+   - Petugas pos dapat membaca masukan atau kritik warga yang ditujukan khusus ke pos mereka
+     dan memberikan tanggapan klarifikasi operasional.
+
+
+================================================================================
+BAB 5 : BEDAH FITUR WEBSITE ADMIN PANEL DESA (KANTOR DESA / BUMDES)
+================================================================================
+Website Admin adalah pusat komando tertinggi yang diakses via laptop kantor desa
+di alamat URL: http://[domain-desa]/admin/login.
+
+1. Autentikasi Khusus Administrator:
+   - Login terpisah dengan session khusus dan proteksi AdminMiddleware.
+   - Kredensial awal: admin@sirkulo.id / admindesa2026 (dapat diubah di menu Pengguna).
+
+2. Dashboard Utama Eksekutif (/admin/dashboard):
+   - 4 Kartu KPI Strategis: Total Nasabah Terdaftar, Total Pos Aktif, Total Transaksi,
+     dan Total Dana Saldo Warga yang dikelola kas BUMDes.
+   - Grafik Visualisasi Interaktif Chart.js: Tren tonase dan nominal perputaran uang 6 bulan terakhir.
+   - Tabel 5 Aktivitas Transaksi Terkini dari seluruh pos desa secara real-time.
+
+3. Manajemen Master Nasabah (/admin/nasabah):
+   - Tabel seluruh warga nasabah di desa dengan pagination dan filter pencarian kilat.
+   - Tampilan Detail Nasabah: Menampilkan kartu profil lengkap, saldo, poin, serta
+     20 transaksi terakhir yang pernah dilakukan warga tersebut.
+   - Fitur Bantuan Reset Password: Admin desa dapat mengatur password baru jika warga
+     mengalami lupa kata sandi akunnya.
+   - Fitur Hapus Akun Nasabah: Hak istimewa untuk menghapus akun secara aman jika ada
+     warga yang berpindah domisili keluar desa.
+
+4. Pengawasan Pos Unit Lapangan (/admin/mitra):
+   - Tabel inventaris seluruh pos cabang bank sampah di tingkat dusun/RW.
+   - Monitoring performa masing-masing pos: total sampah yang dikumpulkan dan riwayat transaksi.
+   - Memastikan seluruh loket pos beroperasi sesuai standar pelayanan desa.
+
+5. Master Harga Sampah & Pembagian Margin BUMDes (/admin/harga-sampah):
+   - Tabel penetapan harga resmi desa per kilogram.
+   - Pengaturan Kolom Ganda:
+     * "Harga Beli dari Warga" : Nominal yang diterima warga saat menimbang sampah.
+     * "Harga Jual ke Pengepul" : Harga jual saat sampah diangkut oleh pabrik daur ulang.
+   - Kalkulator Margin Otomatis: Sistem langsung menghitung selisih keuntungan kas desa
+     dan persentase margin keuntungan BUMDes secara real-time.
+
+6. Manajemen Konten Edukasi Warga (/admin/edukasi):
+   - Fasilitas bagi pengurus desa untuk mempublikasikan artikel edukasi lingkungan.
+   - Dilengkapi formulir unggah foto sampul, pemilihan kategori (Tips/Daur Ulang/Organik/Lingkungan),
+     dan editor teks isi panduan.
+   - Artikel yang diterbitkan langsung tampil di layar depan aplikasi HP seluruh warga desa.
+
+7. Pengelolaan Kritik, Saran & Aduan Warga (/admin/feedback):
+   - Pusat penampungan seluruh masukan, keluhan pos, dan usulan yang dikirimkan warga.
+   - Fitur "Balas Pesan Resmi": Admin desa dapat menuliskan klarifikasi atau tindak lanjut
+     yang akan langsung terkirim dan terbaca di aplikasi Android warga pengirim.
+
+8. Laporan Keuangan & Cetak PDF Resmi (/admin/laporan):
+   - Filter transaksi bulanan dan tahunan sesuai periode pembukuan kas desa.
+   - Rekap Arus Kas: Menampilkan total perputaran uang setoran, total penarikan tunai warga,
+     dan posisi Surplus/Defisit kas bank sampah desa.
+   - Tabel Buku Besar Transaksi: Memuat nomor referensi, nama warga, pos, dan nominal uang.
+   - Fitur Cetak / Simpan PDF: Format siap cetak kertas A4 lengkap dengan kop surat resmi
+     pemerintah desa dan kolom tanda tangan Kepala Desa, Direktur BUMDes, dan Bendahara.
+
+9. Manajemen Pengguna & Hak Akses (/admin/pengguna):
+   - Formulir pendaftaran akun Administrator Desa baru bagi staf kantor desa lainnya.
+   - Daftar seluruh akun administrator desa dan seluruh akun petugas pos lapangan.
+   - Fitur reset kata sandi mandiri untuk menjaga keamanan akun staf.
+
+10. Pusat Diagnostik Server & Pemeliharaan 1-Klik (/admin/sistem):
+    - Kartu Diagnostik Lingkungan: Informasi versi Laravel (v11), versi PHP, status mode debug,
+      ukuran database MySQL dalam Megabyte (MB), status SSL/HTTPS, dan ukuran folder foto.
+    - Tabel Status Dependensi Paket: Memeriksa kestabilan pustaka laravel/framework,
+      laravel/sanctum, guzzlehttp, dan symfony dengan badge status "Stabil & Aman".
+    - 4 Tombol Aksi Pemeliharaan Sekali Klik:
+      a. 🧹 Bersihkan Cache    : Menjalankan optimize:clear dari browser untuk merefresh sistem.
+      b. ⚡ Optimasi Sistem     : Menjalankan optimize untuk mempercepat waktu respon web.
+      c. 🔗 Tautkan Storage    : Memastikan symlink folder gambar tetap terhubung normal.
+      d. 💾 Unduh Backup (.sql): Mengunduh salinan cadangan seluruh database desa hanya dengan
+         SATU KLIK ke laptop tanpa perlu membuka panel hosting/cPanel yang rumit!
+    - Panduan SOP Pembaruan Laravel: Prosedur pembaruan keamanan tahunan (composer update).
+
+
+================================================================================
+BAB 6 : KEAMANAN SISTEM, RBAC & INTEGRITAS DATA KEUANGAN
+================================================================================
+
+6.1 Role-Based Access Control (RBAC) Ketat
+Pemisahan hak akses diimplementasikan di dua level sekaligus (Level Route dan Level Controller):
+• Percobaan akses ilegal dari akun Mitra ke endpoint master harga sampah menghasilkan HTTP 403.
+• Percobaan penghapusan akun nasabah oleh akun Mitra menghasilkan HTTP 403.
+• Percobaan penghapusan transaksi historis menghasilkan HTTP 403.
+
+6.2 Integritas Buku Besar Finansial (Immutable Financial Ledger)
+Seluruh transaksi setoran dan penarikan yang telah berstatus 'SELESAI' tidak dapat dihapus
+atau diubah nominalnya oleh siapapun melalui API mobile. Hal ini menjamin bahwa pembukuan
+keuangan desa bebas dari rekayasa atau manipulasi data di kemudian hari.
+
+6.3 Pencegahan Saldo Ganda / Minus (Concurrency Pessimistic Locking)
+Pada endpoint `cairkanSaldoNasabah` dan `prosesSetoran`:
+- Digunakan blok transaksi database atomik: DB::transaction().
+- Baris pengguna dikunci menggunakan klausa SQL `lockForUpdate()`.
+- Hal ini menjamin bahwa jika ada dua permintaan penarikan uang terjadi pada detik yang sama,
+  sistem akan mengantri secara aman sehingga saldo nasabah tidak pernah menjadi minus (double-spending).
+
+6.4 Proteksi Anti-Brute Force (Rate Limiter)
+- Endpoint autentikasi login (`/api/auth/*`) dilindungi batas `throttle:10,1`.
+- Jika ada robot peretas mencoba menebak kata sandi lebih dari 10 kali dalam 1 menit,
+  IP penyerang otomatis diblokir sementara oleh sistem.
+
+6.5 Lapisan Pelindung Web (Security Headers)
+Setiap lalu lintas HTTP dilindungi header standar industri:
+- X-Frame-Options: SAMEORIGIN (Mencegah website dibajak dalam iframe / clickjacking).
+- X-Content-Type-Options: nosniff (Mencegah file script jahat menyamar sebagai foto).
+- X-XSS-Protection: 1; mode=block (Mencegah injeksi kode JavaScript di formulir web).
+- Referrer-Policy: strict-origin-when-cross-origin.
+- Strict-Transport-Security (HSTS) saat koneksi HTTPS aktif.
+
+6.6 Penutupan Jalur Pengembang (Zero Backdoors)
+Seluruh route testing/development yang berpotensi membocorkan data (seperti reset saldo,
+clean-udin, seed, debug login) telah dibersihkan secara permanen dari file route produksi.
+
+
+================================================================================
+BAB 7 : REFLEKSI PENGEMBANGAN & DAMPAK SOSIAL-EKONOMI DESA
+================================================================================
+
+7.1 Refleksi Filosofis Pengembangan
+Pengembangan SIRKULO bukan sekadar membangun perangkat lunak, melainkan membangun
+"kepercayaan digital" (digital trust) di tengah masyarakat pedesaan. 
+Ketika warga percaya bahwa setiap kilogram sampah yang mereka timbang tercatat
+akurat, dinilai adil dengan harga resmi, dan dapat dicairkan kapan saja tanpa rasa
+khawatir, maka budaya memilah sampah dari rumah tangga akan tumbuh secara organik.
+
+7.2 Tiga Pilar Dampak Nyata untuk Desa
+1. Dampak Lingkungan (Eco-Impact):
+   - Berkurangnya timbulan sampah yang dibuang ke sungai atau dibakar di pekarangan.
+   - Sampah anorganik bernilai ekonomis tersalurkan langsung ke industri daur ulang.
+   - Lingkungan desa menjadi bersih, asri, dan terbebas dari ancaman banjir lokal.
+
+2. Dampak Ekonomi Kerakyatan (Economic Empowerment):
+   - Sampah berubah menjadi aset likuid yang menambah pendapatan keluarga warga.
+   - Warga dapat menabung secara konsisten untuk kebutuhan hari raya atau pembayaran iuran desa.
+   - Membuka peluang unit usaha baru bagi Badan Usaha Milik Desa (BUMDes).
+
+3. Dampak Tata Kelola Pemerintahan (Good Village Governance):
+   - Pencatatan kas bank sampah desa menjadi 100% transparan dan dapat diaudit kapan saja.
+   - Meniadakan potensi kecurigaan pemotongan margin yang tidak sah.
+   - Meningkatkan reputasi desa sebagai Desa Digital (Smart Village) percontohan di tingkat daerah.
+
+
+================================================================================
+BAB 8 : PEDOMAN KONTINUITAS & PEMELIHARAAN JANGKA PANJANG
+================================================================================
+
+Setelah proses serah terima aplikasi dari pengembang kepada Pemerintah Desa, keberlanjutan
+sistem bergantung pada kedisiplinan operasional sesuai SOP berikut:
+
+1. SOP Operasional Harian:
+   - Petugas loket pos memastikan koneksi internet aktif saat mencatat setoran sampah.
+   - Jika jam pelayanan pos telah usai, petugas mengubah status loket menjadi "Tutup".
+
+2. SOP Pemeliharaan Bulanan (Operator IT & Bendahara Desa):
+   - Masuk ke Web Admin -> Menu "Sistem & Server".
+   - Klik tombol hijau "Unduh Backup (.sql)" untuk menyimpan salinan database desa ke laptop.
+   - Simpan file backup tersebut ke Google Drive resmi milik desa.
+   - Masuk ke Menu "Laporan", pilih bulan yang baru ditutup, klik "Cetak / Simpan PDF"
+     sebagai arsip laporan pertanggungjawaban fisik.
+   - Lakukan pembayaran perpanjangan sewa hosting/server sebelum jatuh tempo.
+
+3. SOP Pemeliharaan 6 Bulanan:
+   - Ganti kata sandi akun Administrator Desa dan akun hosting secara berkala.
+   - Klik tombol "Bersihkan Cache" dan "Optimasi Sistem" di Web Admin untuk menjaga
+     kecepatan respon aplikasi tetap gesit.
+
+4. SOP Pembaruan Tahunan (Pembaruan Laravel & Dependensi):
+   - Didampingi oleh teknisi IT desa atau tim pengabdian kampus.
+   - Buka terminal server hosting, jalankan:
+     composer update --no-dev
+     php artisan migrate --force
+     php artisan optimize:clear && php artisan optimize
+   - Lakukan pemeriksaan status paket di menu "Sistem & Server" untuk memastikan
+     seluruh modul kembali berstatus "Stabil & Aman".
+
+================================================================================
+                                 PENUTUP
+================================================================================
+Buku panduan bedah sistem ini disusun dengan harapan aplikasi SIRKULO dapat menjadi
+alat transformasi yang berkelanjutan bagi kemajuan dan kemandirian lingkungan
+serta ekonomi masyarakat desa.
+
+                    "Mulai dari Sampah, Tumbuh Menjadi Berkah"
+================================================================================
+                        © 2026 SIRKULO INDONESIA
+================================================================================

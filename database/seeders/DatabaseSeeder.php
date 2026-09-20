@@ -4,7 +4,9 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
-use App\Models\User;
+use App\Models\Admin;
+use App\Models\Nasabah;
+use App\Models\PetugasMitra;
 use App\Models\Partner;
 use App\Models\TrashCategory;
 use App\Models\Education;
@@ -17,7 +19,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // ── 1. Buat / Reset Akun Nasabah ────────────────────────────
-        $nasabah = User::updateOrCreate(
+        $nasabah = Nasabah::updateOrCreate(
             ['email' => 'itang@gmail.com'],
             [
                 'nama'       => 'Itang Al Harits',
@@ -30,19 +32,40 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // ── 2. Buat / Reset Akun Mitra Universal & 3 Pos Bank Sampah ─
-        // Hapus akun lama seperti udin@gmail.com
-        User::whereIn('email', ['udin@gmail.com', 'mitra2@gmail.com', 'mitra3@gmail.com'])->delete();
-
-        $penggunaMitra = User::updateOrCreate(
-            ['email' => 'mitrasirkulo@gmail.com'],
+        // ── 1b. Buat / Reset Akun Super Admin Desa ──────────────────
+        $superAdmin = Admin::updateOrCreate(
+            ['email' => 'superadmin@sirkulo.id'],
             [
-                'nama'       => 'Mitra SIRKULO',
-                'kata_sandi' => Hash::make('sirkulo2026'),
-                'telepon'    => '08123456789',
-                'alamat'     => 'Jl. Pahlawan No. 1, Semarang',
-                'saldo'      => 850000,
-                'poin'       => 0,
+                'nama'       => 'Super Administrator',
+                'kata_sandi' => Hash::make('superadmin2026'),
+                'telepon'    => '081200001111',
+                'peran'      => 'SUPER_ADMIN',
+            ]
+        );
+
+        // ── 1c. Buat / Reset Akun Admin Operasional Desa ─────────────
+        $adminOperasional = Admin::updateOrCreate(
+            ['email' => 'admin@sirkulo.id'],
+            [
+                'nama'       => 'Admin Operasional Desa',
+                'kata_sandi' => Hash::make('admindesa2026'),
+                'telepon'    => '081299887766',
+                'peran'      => 'ADMIN',
+            ]
+        );
+
+        // ── 2. Reset Akun Dummy & Pos Bank Sampah Resmi Desa ─────────
+        PetugasMitra::whereIn('email', ['mitrasirkulo@gmail.com', 'udin@gmail.com', 'mitra2@gmail.com', 'mitra3@gmail.com'])->delete();
+
+        // Buat Akun Petugas Resmi Pos 1 (Bpk. Bambang Sutrisno)
+        $petugas1 = PetugasMitra::updateOrCreate(
+            ['email' => 'bambang@sirkulo.id'],
+            [
+                'nama'       => 'Bpk. Bambang Sutrisno',
+                'kata_sandi' => Hash::make('petugas2026'),
+                'telepon'    => '081234567890',
+                'alamat'     => 'Jl. Pahlawan No. 1, Semarang Tengah',
+                'saldo'      => 0,
                 'peran'      => 'MITRA',
             ]
         );
@@ -50,7 +73,8 @@ class DatabaseSeeder extends Seeder
         Partner::updateOrCreate(
             ['nama' => 'Pos 1 - Bank Sampah Maju Jaya'],
             [
-                'id_pengguna' => $penggunaMitra->id,
+                'id_pengguna' => $petugas1->id,
+                'pengelola'   => 'Bpk. Bambang Sutrisno',
                 'alamat'      => 'Jl. Pahlawan No. 1, Semarang Tengah',
                 'lintang'     => -6.9932,
                 'bujur'       => 110.4203,
@@ -61,7 +85,7 @@ class DatabaseSeeder extends Seeder
         Partner::updateOrCreate(
             ['nama' => 'Pos 2 - Bank Sampah Berkah Bersih'],
             [
-                'id_pengguna' => $penggunaMitra->id,
+                'pengelola'   => 'Ibu Siti Rahmawati',
                 'alamat'      => 'Jl. Pemuda No. 15, Pandansari',
                 'lintang'     => -6.9821,
                 'bujur'       => 110.4125,
@@ -72,7 +96,7 @@ class DatabaseSeeder extends Seeder
         Partner::updateOrCreate(
             ['nama' => 'Pos 3 - Bank Sampah Asri Sejahtera'],
             [
-                'id_pengguna' => $penggunaMitra->id,
+                'pengelola'   => 'Bpk. Budi Santoso',
                 'alamat'      => 'Jl. Pandanaran No. 8, Mugassari',
                 'lintang'     => -6.9912,
                 'bujur'       => 110.4180,

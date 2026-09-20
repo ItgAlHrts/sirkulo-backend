@@ -39,18 +39,7 @@ class UserController extends Controller
         $pengguna = $request->user();
         $pengguna->update($request->only('nama', 'telepon', 'alamat'));
 
-        return response()->json([
-            'id'        => $pengguna->id,
-            'kode_user' => $pengguna->kode_user,
-            'nama'      => $pengguna->nama,
-            'email'     => $pengguna->email,
-            'telepon'   => $pengguna->telepon,
-            'alamat'    => $pengguna->alamat,
-            'saldo'     => $pengguna->saldo,
-            'poin'      => $pengguna->poin,
-            'peran'     => $pengguna->peran,
-            'foto_url'  => $pengguna->foto_url,
-        ]);
+        return response()->json($this->buildProfileResponse($pengguna));
     }
 
     // ── Unggah Foto Profil ─────────────────────────────────────────
@@ -67,18 +56,7 @@ class UserController extends Controller
         $urlFoto = $request->getSchemeAndHttpHost() . '/storage/' . $jalur;
         $pengguna->update(['foto_url' => $urlFoto]);
 
-        return response()->json([
-            'id'        => $pengguna->id,
-            'kode_user' => $pengguna->kode_user,
-            'nama'      => $pengguna->nama,
-            'email'     => $pengguna->email,
-            'telepon'   => $pengguna->telepon,
-            'alamat'    => $pengguna->alamat,
-            'saldo'     => $pengguna->saldo,
-            'poin'      => $pengguna->poin,
-            'peran'     => $pengguna->peran,
-            'foto_url'  => $pengguna->foto_url,
-        ]);
+        return response()->json($this->buildProfileResponse($pengguna));
     }
 
     // ── Ubah Kata Sandi ────────────────────────────────────────────
@@ -96,5 +74,22 @@ class UserController extends Controller
 
         $pengguna->update(['kata_sandi' => Hash::make($request->kata_sandi_baru)]);
         return response()->json(['pesan' => 'Kata sandi berhasil diubah']);
+    }
+
+    // ── Private Helper ─────────────────────────────────────────────
+    private function buildProfileResponse($pengguna): array
+    {
+        return [
+            'id'        => $pengguna->id,
+            'kode_user' => $pengguna->kode_user,
+            'nama'      => $pengguna->nama,
+            'email'     => $pengguna->email,
+            'telepon'   => $pengguna->telepon,
+            'alamat'    => $pengguna->alamat,
+            'saldo'     => $pengguna->saldo,
+            'poin'      => $pengguna->poin,
+            'peran'     => $pengguna->peran,
+            'foto_url'  => $pengguna->foto_url,
+        ];
     }
 }

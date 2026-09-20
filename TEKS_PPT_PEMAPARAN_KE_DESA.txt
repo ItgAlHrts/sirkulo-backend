@@ -1,0 +1,330 @@
+================================================================================
+      TEKS PEMAPARAN PPT: PENGELOLAAN APLIKASI SIRKULO OLEH DESA
+         Serah Terima, Perawatan, Biaya, dan Keberlanjutan Sistem
+================================================================================
+Ditujukan kepada : Pemerintah Desa / BUMDes / Pengurus Bank Sampah
+Penyusun         : Tim Pengembang Aplikasi SIRKULO
+================================================================================
+
+
+================================================================================
+SLIDE 1 — PEMBUKA
+================================================================================
+JUDUL: "Alih Kelola Aplikasi SIRKULO ke Pihak Desa"
+       Panduan Pengelolaan, Perawatan, dan Keberlanjutan Sistem
+
+TEKS PEMBICARA:
+"Bapak/Ibu pengurus desa yang kami hormati, pada kesempatan ini kami akan
+memaparkan secara lengkap bagaimana aplikasi SIRKULO akan dikelola sepenuhnya
+oleh pihak desa setelah proses serah terima selesai. Kami pastikan desa tidak
+perlu bergantung kepada kami sebagai pengembang untuk kegiatan operasional
+sehari-hari. Semua sudah kami siapkan agar desa bisa mandiri."
+
+
+================================================================================
+SLIDE 2 — APA YANG DISERAHKAN KE DESA?
+================================================================================
+JUDUL: "Paket Serah Terima Aplikasi SIRKULO"
+
+POIN-POIN SLIDE:
+• Aplikasi Android siap pakai (file APK untuk Nasabah & Mitra)
+• Kode sumber lengkap (backend Laravel + Android) — disimpan di flashdisk/GitHub
+• File konfigurasi database & cadangan data awal
+• File Keystore Android (kunci digital aplikasi — WAJIB SIMPAN AMAN)
+• Semua akun akses: hosting, database, domain
+• Dokumen panduan operasional lengkap
+• Berita Acara Serah Terima yang ditandatangani kedua pihak
+
+TEKS PEMBICARA:
+"Kami tidak hanya menyerahkan aplikasinya saja, tetapi seluruh komponen
+pendukung sistem. Ibaratnya, kami menyerahkan tidak hanya mobilnya, tapi juga
+BPKB, kunci serep, dan buku servisnya. Sehingga suatu hari jika desa ingin
+mengembangkan lebih lanjut bersama developer baru, semua bahan sudah tersedia."
+
+
+================================================================================
+SLIDE 3 — SIAPA YANG MENGELOLA DI PIHAK DESA?
+================================================================================
+JUDUL: "Tiga Peran Pengelola di Pihak Desa"
+
+POIN-POIN SLIDE:
+1. OPERATOR IT DESA (1 orang)
+   → Merawat server dan melakukan backup data rutin
+   → Tidak harus ahli IT — cukup melek komputer dasar
+   → Bisa dari staf desa, karang taruna, atau relawan muda desa
+
+2. ADMIN DESA / PENGURUS BUMDES
+   → Login ke website admin dari laptop kantor desa
+   → Lihat laporan, kelola data nasabah, atur harga sampah
+   → Cetak laporan LPJ untuk keperluan rapat dan dinas
+
+3. PETUGAS POS BANK SAMPAH (Per RT/RW)
+   → Operasional harian: scan QR, timbang sampah, catat transaksi
+   → Cetak struk via printer Bluetooth atau kirim WhatsApp
+   → Buka/tutup status pos dari HP
+
+TEKS PEMBICARA:
+"Desa tidak perlu merekrut programmer atau tenaga IT khusus. Cukup tiga peran
+ini yang dibagi ke orang-orang yang sudah ada di desa. Kami akan memberikan
+pelatihan selama satu hingga dua hari kepada masing-masing peran sebelum
+serah terima resmi."
+
+
+================================================================================
+SLIDE 4 — TUGAS RUTIN OPERATOR IT DESA & WEB ADMIN
+================================================================================
+JUDUL: "Jadwal Perawatan Rutin oleh Operator IT & Admin Desa"
+
+POIN-POIN SLIDE:
+SETIAP HARI (5 menit):
+• Pantau transaksi dan aktivitas pos melalui Website Admin Desa (Menu Dashboard)
+• Pastikan server dan koneksi internet pos bank sampah aktif normal
+
+SETIAP BULAN (15-30 menit):
+• Buka Website Admin Desa di laptop (Menu Sistem & Pemeliharaan)
+• Download salinan cadangan (backup) database langsung dengan 1-KLIK (.sql)
+• Simpan file cadangan tersebut ke Google Drive resmi desa untuk arsip aman
+• Cetak laporan bulanan resmi (Menu Laporan) untuk laporan pertanggungjawaban
+• Bayar tagihan sewa hosting server sebelum jatuh tempo
+
+SETIAP TAHUN (dengan bantuan teknisi IT / kampus):
+• Update library keamanan sistem Laravel (composer update) — panduan ada di Web Admin
+• Perpanjang nama domain dan hosting server desa
+• Evaluasi kapasitas penyimpanan dan lakukan optimasi cache melalui Web Admin
+
+TEKS PEMBICARA:
+"Bapak dan Ibu sekalian, tugas operasional ini sekarang jauh lebih mudah karena
+sudah kami lengkapi dengan Website Admin khusus desa. Misalnya untuk backup
+database seluruh saldo dan transaksi warga, operator desa cukup klik satu tombol
+'Unduh Backup' di website admin, langsung ter-download otomatis tanpa perlu repot
+buka panel server yang rumit. Selain itu, laporan bulanan juga bisa langsung
+dicetak lengkap dengan format kop surat desa."
+
+
+================================================================================
+SLIDE 5 — KEAMANAN SISTEM & PERLINDUNGAN DATA WARGA
+================================================================================
+JUDUL: "Keamanan Sistem & Pembatasan Hak Akses Ketat"
+
+POIN-POIN SLIDE:
+PEMISAHAN WEWENANG KETAT (ROLE-BASED ACCESS CONTROL):
+✓ Petugas Pos Lapangan (Mitra) HANYA bertugas menimbang dan scan setoran sampah
+✓ Petugas Pos TIDAK BISA menghapus akun nasabah, TIDAK BISA ubah password nasabah,
+  dan TIDAK BISA mengubah harga sampah sepihak (semua dikunci demi keamanan)
+✓ Penghapusan data, reset akun, dan penentuan harga sampah 100% hanya ada di Admin Desa
+
+PERLINDUNGAN KEAMANAN TEKNIS (STANDAR INDUSTRI):
+✓ Password warga tersimpan dalam enkripsi satu arah (Bcrypt Hash) — tidak bisa diintip
+✓ Anti-Brute Force: pembatasan percobaan login otomatis untuk mencegah peretasan
+✓ Concurrency Lock: sistem penguncian transaksi agar saldo warga tidak bisa ganda/minus
+✓ Security Headers aktif: mencegah serangan web (XSS, Clickjacking, MIME-sniffing)
+✓ Mode debug server dinonaktifkan (APP_DEBUG=false) dan wajib HTTPS/SSL
+
+KEWAJIBAN DESA UNTUK MENJAGA KEAMANAN:
+• Jaga kerahasiaan password akun Web Admin dan password hosting desa
+• Lakukan penggantian password akun admin secara berkala (minimal 6 bulan sekali)
+• Lakukan pembaruan keamanan (update Laravel) berkala sesuai panduan di Web Admin
+
+TEKS PEMBICARA:
+"Keamanan data tabungan warga adalah prioritas nomor satu. Kami telah merombak
+sistem agar petugas di lapangan tidak memiliki celah untuk menyalahgunakan data,
+seperti menghapus nasabah atau mengubah harga sampah secara sepihak. Seluruh kontrol
+keuangan dan data warga sepenuhnya berada di bawah kendali pengurus desa melalui
+Web Admin. Selain itu, seluruh lalu lintas data sudah kami lindungi dengan enkripsi
+dan standar pengamanan sistem modern."
+
+
+================================================================================
+SLIDE 6 — RINCIAN BIAYA OPERASIONAL
+================================================================================
+JUDUL: "Estimasi Biaya Operasional Tahunan"
+
+POIN-POIN SLIDE:
+BIAYA WAJIB TAHUNAN:
+┌─────────────────────────────────┬──────────────────────────┐
+│ Komponen                        │ Estimasi Biaya           │
+├─────────────────────────────────┼──────────────────────────┤
+│ Hosting/Server (VPS)            │ Rp 840.000 - 1.800.000   │
+│                                 │ (Rp 70.000-150.000/bulan)│
+├─────────────────────────────────┼──────────────────────────┤
+│ Domain Website                  │ Rp 100.000 - 200.000     │
+├─────────────────────────────────┼──────────────────────────┤
+│ Update Keamanan Tahunan         │ Rp 100.000 - 300.000     │
+│ (Jasa Teknisi 1x/tahun)         │                          │
+├─────────────────────────────────┼──────────────────────────┤
+│ TOTAL ESTIMASI PER TAHUN        │ Rp 1.040.000 - 2.300.000 │
+└─────────────────────────────────┴──────────────────────────┘
+
+BIAYA SATU KALI (OPSIONAL):
+• Pendaftaran Google Play Store : Rp 400.000 (sekali, seumur hidup)
+
+SUMBER ANGGARAN YANG BISA DIGUNAKAN:
+• APBDes — Pos Digitalisasi Layanan Desa (diperbolehkan Permendesa 2023)
+• Kas BUMDes
+• Program bantuan Diskominfo Kabupaten/Kota
+
+TEKS PEMBICARA:
+"Dengan biaya kurang dari Rp 2.000.000 per tahun, desa sudah memiliki sistem
+pengelolaan bank sampah digital yang lengkap untuk ratusan warga. Ini jauh
+lebih hemat dibanding jika harus mencetak buku tabungan fisik, membayar staf
+pencatat manual, dan mengolah laporan secara manual setiap bulan. Biaya ini
+pun sudah bisa dianggarkan secara resmi melalui APBDes."
+
+
+================================================================================
+SLIDE 7 — OPSI HOSTING SERVER
+================================================================================
+JUDUL: "Tiga Pilihan Server untuk Desa"
+
+POIN-POIN SLIDE:
+PILIHAN 1: HOSTING MANDIRI (Paling Umum)
+• Provider lokal: IDCloudHost, Niagahoster
+• Biaya: Rp 70.000-150.000/bulan
+• Keunggulan: Fleksibel, full kontrol, support bahasa Indonesia
+• Siapa yang bayar: Dianggarkan dari APBDes
+
+PILIHAN 2: SERVER KAMPUS / PERGURUAN TINGGI (Gratis)
+• Desa mengajukan surat permohonan resmi ke kampus
+• Kampus host server sebagai program Pengabdian Masyarakat
+• Keunggulan: Gratis, ada teknisi kampus yang membantu
+• Kampus dapat: Data riil untuk penelitian dan PKM mahasiswa
+
+PILIHAN 3: SERVER PEMERINTAH DAERAH (Gratis, Paling Ideal)
+• Koordinasi ke Diskominfo Kabupaten/Kota
+• Banyak Pemda sudah punya cloud lokal untuk aplikasi pelayanan desa
+• Keunggulan: Gratis, dikelola pemerintah, paling aman jangka panjang
+• Proses: Mengajukan surat resmi ke Diskominfo
+
+REKOMENDASI:
+Jangka pendek → Titip ke kampus (sambil transisi)
+Jangka panjang → Koordinasi ke Diskominfo Kabupaten
+
+TEKS PEMBICARA:
+"Desa tidak harus langsung beli server sendiri. Ada jalur koordinasi ke
+pemerintah daerah yang bisa menyediakan server secara gratis melalui
+program digitalisasi desa. Kami rekomendasikan untuk memulai dari server
+kampus terlebih dahulu sambil mengajukan permohonan ke Diskominfo kabupaten."
+
+
+================================================================================
+SLIDE 8 — JIKA ADA MASALAH TEKNIS
+================================================================================
+JUDUL: "Prosedur Penanganan Masalah Teknis"
+
+POIN-POIN SLIDE:
+MASALAH RINGAN — Tangani Sendiri:
+• Aplikasi error di HP → Restart HP, cek koneksi internet
+• Warga tidak bisa login → Cek password, minta reset ke Admin Desa
+• Struk tidak bisa dicetak → Cek koneksi Bluetooth printer
+
+MASALAH SEDANG — Hubungi Hosting:
+• Server tidak bisa diakses → Hubungi CS provider hosting
+• Tagihan hosting belum dibayar → Bayar segera lewat dashboard hosting
+
+MASALAH BERAT — Butuh Teknisi IT:
+• Data tidak muncul / corrupt → Pulihkan dari file backup database terakhir
+• Celah keamanan ditemukan → Hubungi Diskominfo atau teknisi IT kabupaten
+• Fitur utama error total → Hubungi pengembang awal atau developer baru
+
+KONTAK DARURAT:
+• Operator IT Desa     : [isi nama & nomor]
+• CS Hosting           : [isi nomor sesuai provider yang dipilih]
+• Diskominfo Kabupaten : [isi nomor Diskominfo setempat]
+• Pengembang Awal      : [isi nama & nomor Anda]
+
+TEKS PEMBICARA:
+"Sebagian besar masalah yang muncul dalam operasional sehari-hari bisa
+diselesaikan oleh Operator IT Desa tanpa perlu menghubungi pengembang.
+Kami menyediakan dokumen panduan lengkap dan nomor kontak darurat yang
+jelas agar desa tidak kebingungan jika menghadapi masalah teknis."
+
+
+================================================================================
+SLIDE 9 — RENCANA KEBERLANJUTAN JANGKA PANJANG
+================================================================================
+JUDUL: "Keberlanjutan Sistem SIRKULO (Sustainability Plan)"
+
+POIN-POIN SLIDE:
+TAHUN 1-2 (Masa Adaptasi):
+• Operasional normal semua pos bank sampah
+• Pelaporan DLH berjalan otomatis lewat sistem
+• Evaluasi kinerja sistem dan kepuasan pengguna
+
+TAHUN 2-3 (Masa Stabilisasi):
+• Update keamanan rutin berjalan
+• Jika ada developer baru dari kampus/karang taruna, kode sumber siap
+• Koordinasi ke Diskominfo untuk host server permanen
+
+TAHUN 3-5 (Masa Pengembangan Lanjutan):
+• Penambahan fitur baru jika diperlukan
+  (contoh: poin reward, integrasi e-money, modul kompos)
+• Potensi adopsi oleh desa-desa tetangga
+• Pengajuan ke program inovasi digital Pemda/Kemendesa
+
+JAMINAN KEBERLANJUTAN:
+• Kode sumber sudah diserahkan — bisa dikembangkan developer baru kapanpun
+• Dokumentasi lengkap tersedia — tidak bergantung pada satu orang
+• Infrastruktur standar industri — mudah dipindah ke server manapun
+
+TEKS PEMBICARA:
+"Kami merancang sistem ini bukan untuk satu atau dua tahun saja. Dengan
+menyerahkan kode sumber lengkap dan dokumentasi menyeluruh, aplikasi ini
+bisa terus hidup dan berkembang bahkan tanpa kehadiran kami sebagai
+pengembang awal. Desa memiliki kendali penuh atas masa depan sistem ini."
+
+
+================================================================================
+SLIDE 10 — PENUTUP & KOMITMEN BERSAMA
+================================================================================
+JUDUL: "Komitmen Bersama untuk Bank Sampah Digital Desa"
+
+POIN-POIN SLIDE:
+KOMITMEN PENGEMBANG:
+✓ Menyerahkan sistem yang sudah berjalan dengan baik
+✓ Memberikan pelatihan kepada pengelola desa
+✓ Menyediakan dokumentasi panduan yang lengkap
+✓ Bersedia dikonsultasi untuk darurat teknis dalam batas kemampuan
+
+KOMITMEN YANG DIHARAPKAN DARI DESA:
+✓ Membayar hosting server tepat waktu setiap bulan
+✓ Melakukan backup database secara rutin setiap bulan
+✓ Menjaga kerahasiaan akun dan password sistem
+✓ Melakukan update keamanan setidaknya satu kali per tahun
+✓ Menunjuk dan melatih Operator IT Desa yang bertanggung jawab
+
+LANGKAH BERIKUTNYA:
+→ Penandatanganan Berita Acara Serah Terima
+→ Pelatihan pengelola desa (1-2 hari)
+→ Aktivasi server produksi
+→ Distribusi APK ke warga desa
+→ Operasional perdana bank sampah digital
+
+TEKS PEMBICARA:
+"Dengan ditandatanganinya berita acara serah terima, desa resmi menjadi
+pengelola penuh aplikasi SIRKULO. Ini bukan akhir dari perjalanan, ini
+adalah awal dari pengelolaan bank sampah yang lebih modern, transparan,
+dan berdampak nyata bagi kesejahteraan warga. Kami sangat bangga dan
+berharap sistem ini bisa menjadi contoh baik bagi desa-desa lain.
+Terima kasih atas kepercayaan dan kesempatan yang diberikan kepada kami."
+
+
+================================================================================
+LAMPIRAN — DOKUMEN YANG DISERAHKAN SAAT SERAH TERIMA
+================================================================================
+
+DAFTAR DOKUMEN FISIK / DIGITAL:
+[ ] Berita Acara Serah Terima Teknologi (2 rangkap, bermaterai)
+[ ] Panduan Lengkap Aplikasi SIRKULO untuk Desa (.txt / dicetak)
+[ ] Panduan Setup Server dan Teknis (.txt)
+[ ] Daftar Akun dan Password Sistem (RAHASIA, disimpan di tempat aman)
+
+DAFTAR ASET DIGITAL (Di Flashdisk / Google Drive Desa):
+[ ] Kode sumber Android (.zip folder sirkulo-nasabah-app)
+[ ] Kode sumber Backend Laravel (.zip folder sirkulo-backend)
+[ ] File Keystore Android (.jks) — JANGAN SAMPAI HILANG
+[ ] File backup database awal (.sql)
+[ ] File APK siap install untuk warga dan mitra
+
+================================================================================
+           "DESA BERDAYA, LINGKUNGAN LESTARI, DATA TERJAGA"
+================================================================================

@@ -15,8 +15,23 @@ class Feedback extends Model
     const UPDATED_AT = 'diperbarui_pada';
 
     protected $fillable = [
-        'id_pengguna', 'kategori', 'pesan', 'jawaban', 'dijawab_pada', 'id_mitra'
+        'id_pengguna', 'kategori', 'pesan', 'jawaban', 'dijawab_pada', 'id_mitra', 'pengirim', 'status'
     ];
+
+    protected $appends = ['sudah_dijawab'];
+
+    public function getSudahDijawabAttribute(): bool
+    {
+        return !empty($this->jawaban) || ($this->attributes['status'] ?? '') === 'DIJAWAB';
+    }
+
+    public function getStatusAttribute($value): string
+    {
+        if (!empty($this->jawaban)) {
+            return 'DIJAWAB';
+        }
+        return $value ?: 'MENUNGGU';
+    }
 
     protected $casts = [
         'dibuat_pada'     => 'datetime:Y-m-d H:i:s',
@@ -31,11 +46,11 @@ class Feedback extends Model
 
     public function pengguna()
     {
-        return $this->belongsTo(User::class, 'id_pengguna');
+        return $this->belongsTo(Nasabah::class, 'id_pengguna');
     }
 
     public function mitra()
     {
-        return $this->belongsTo(User::class, 'id_mitra');
+        return $this->belongsTo(Partner::class, 'id_mitra');
     }
 }

@@ -12,16 +12,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('mitra', function (Blueprint $table) {
-            // Drop unique constraint dulu
-            $table->dropUnique(['id_pengguna']);
-        });
+        // No-op karena tabel mitra sudah disesuaikan pada migrasi selanjutnya
     }
 
     public function down(): void
     {
-        Schema::table('mitra', function (Blueprint $table) {
-            $table->unique('id_pengguna');
-        });
+        // No-op
     }
 };

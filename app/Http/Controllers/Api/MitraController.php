@@ -3,7 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Models\Nasabah;
+use App\Models\PetugasMitra;
 use App\Models\Partner;
 use App\Models\Transaction;
 use App\Models\Notification;
@@ -17,63 +18,45 @@ use Illuminate\Support\Str;
 class MitraController extends Controller
 {
     /**
-     * Dapatkan data pos mitra dari user yang login atau berdasarkan X-Pos-Id.
+     * Dapatkan data pos mitra yang ditugaskan khusus untuk akun petugas yang sedang login.
+     * Aturan: 1 Akun Petugas = 1 Pos Bank Sampah (Beda Pos = Beda Akun).
      */
     private function getMitra(Request $request)
     {
         $user = $request->user();
-        $posId = $request->header('X-Pos-Id') ?: ($request->input('id_pos') ?: $request->query('id_pos'));
 
-        if ($posId) {
-            $selectedPartner = Partner::find($posId);
-            if ($selectedPartner) {
-                return $selectedPartner;
+        // 0. Cek jika request secara eksplisit meminta pos tertentu (via header X-Pos-Id atau parameter id_mitra)
+        $requestedPosId = $request->header('X-Pos-Id') ?: $request->input('id_mitra') ?: $request->query('id_mitra');
+        if ($requestedPosId) {
+            $pos = Partner::find($requestedPosId);
+            if (!$pos) {
+                $pos = Partner::all()->first(function ($p) use ($requestedPosId) {
+                    return $p->id === $requestedPosId || $p->kode_pos === $requestedPosId || strcasecmp($p->nama, $requestedPosId) === 0 || stripos($p->nama, $requestedPosId) !== false;
+                });
+            }
+            if ($pos) {
+                return $pos;
             }
         }
 
+        // 1. Cari unit pos yang ditugaskan khusus ke akun petugas ini oleh Administrator
         $mitra = Partner::where('id_pengguna', $user->id)->first();
+
         if (!$mitra) {
-            $mitra = Partner::first();
+            abort(403, 'Akun petugas Anda belum ditugaskan ke unit pos bank sampah oleh Administrator.');
         }
-        if (!$mitra) {
-            // Jika belum ada pos mitra, buatkan default untuk akun mitra
-            $mitra = Partner::create([
-                'id_pengguna' => $user->id,
-                'nama'        => 'Pos 1 - ' . ($user->nama ?? 'Bank Sampah'),
-                'alamat'      => $user->alamat ?? 'Jl. Pos Bank Sampah No. 1',
-                'lintang'     => -6.9932,
-                'bujur'       => 110.4203,
-                'jam_buka'    => 'Senin - Sabtu, 08:00 - 16:00 WIB',
-            ]);
-        }
+
         return $mitra;
     }
 
     /**
      * GET /api/mitra/pos-list
-     * Ambil seluruh daftar pos bank sampah yang tersedia untuk dipilih mitra.
+     * Ambil data pos yang ditugaskan kepada petugas yang sedang login (1 akun = 1 pos).
      */
     public function listPos(Request $request)
     {
-        // Auto-drop unique constraint pada id_pengguna agar satu Mitra bisa punya banyak Pos
-        try {
-            if (\DB::getDriverName() === 'mysql' || \DB::getDriverName() === 'mariadb') {
-                $hasUnique = \DB::select(
-                    "SELECT COUNT(*) as cnt FROM information_schema.STATISTICS
-                     WHERE TABLE_SCHEMA = DATABASE()
-                     AND TABLE_NAME = 'mitra'
-                     AND INDEX_NAME = 'mitra_id_pengguna_unique'"
-                );
-                if (!empty($hasUnique) && $hasUnique[0]->cnt > 0) {
-                    \DB::statement('ALTER TABLE mitra DROP INDEX mitra_id_pengguna_unique');
-                }
-            }
-        } catch (\Exception $e) {
-            // Ignore — constraint mungkin sudah dihapus
-        }
-
-        $allPos = Partner::with('pengguna')->get();
-        return response()->json($allPos);
+        $myPos = $this->getMitra($request);
+        return response()->json([$myPos]);
     }
 
     /**
@@ -102,7 +85,7 @@ class MitraController extends Controller
             ->sum('jumlah_total');
 
         // Total nasabah terdaftar di sistem
-        $totalNasabah = User::where('peran', 'NASABAH')->count();
+        $totalNasabah = Nasabah::count();
 
         // Riwayat 5 transaksi terakhir
         $transaksiTerbaru = Transaction::with('pengguna')
@@ -113,14 +96,15 @@ class MitraController extends Controller
 
         return response()->json([
             'pos' => [
-                'id'          => $mitra->id,
-                'nama_pos'    => $mitra->nama,
-                'kode_pos'    => $mitra->kode_pos,
-                'alamat'      => $mitra->alamat,
-                'jam_buka'    => $mitra->jam_buka,
-                'pengelola'   => $request->user()->nama,
-                'telepon'     => $request->user()->telepon,
-                'email'       => $request->user()->email,
+                'id'              => $mitra->id,
+                'nama_pos'        => $mitra->nama,
+                'kode_pos'        => $mitra->kode_pos,
+                'alamat'          => $mitra->alamat,
+                'jam_buka'        => $mitra->jam_buka,
+                'pengelola'       => $request->user()->nama,
+                'telepon'         => $request->user()->telepon,
+                'email'           => $request->user()->email,
+                'kategori_sampah' => $mitra->kategoriSampah()->get(),
             ],
             'saldo_pos'              => $totalSetoranBulanIni,
             'total_setoran_hari_ini' => $totalSetoranHariIni,
@@ -139,7 +123,7 @@ class MitraController extends Controller
      */
     public function daftarNasabah(Request $request)
     {
-        $query = User::where('peran', 'NASABAH');
+        $query = Nasabah::query();
 
         if ($request->has('q') && !empty($request->q)) {
             $keyword = '%' . $request->q . '%';
@@ -147,18 +131,12 @@ class MitraController extends Controller
                 $q->where('nama', 'like', $keyword)
                   ->orWhere('telepon', 'like', $keyword)
                   ->orWhere('email', 'like', $keyword)
-                  ->orWhere('id', 'like', $keyword);
+                  ->orWhere('id', 'like', $keyword)
+                  ->orWhere('kode_user', 'like', $keyword); // query langsung ke kolom DB
             });
         }
 
         $nasabah = $query->orderBy('nama', 'asc')->get();
-        if ($request->has('q') && !empty($request->q)) {
-            $q = trim($request->q);
-            $matchedByKode = User::where('peran', 'NASABAH')->get()->filter(function ($u) use ($q) {
-                return stripos($u->kode_user, $q) !== false;
-            });
-            $nasabah = $nasabah->merge($matchedByKode)->unique('id');
-        }
         return response()->json($nasabah->values());
     }
 
@@ -168,17 +146,11 @@ class MitraController extends Controller
      */
     public function detailNasabah($id)
     {
-        $nasabah = User::where('peran', 'NASABAH')
-            ->where(function ($q) use ($id) {
-                $q->where('id', $id)->orWhere('telepon', $id);
-            })
+        // Cari berdasarkan ID, telepon, atau kode_user — query langsung ke DB
+        $nasabah = Nasabah::where('id', $id)
+            ->orWhere('telepon', $id)
+            ->orWhere('kode_user', $id)
             ->first();
-
-        if (!$nasabah) {
-            $nasabah = User::where('peran', 'NASABAH')->get()->first(function ($u) use ($id) {
-                return strcasecmp($u->kode_user, $id) === 0 || strcasecmp($u->id, $id) === 0;
-            });
-        }
 
         if (!$nasabah) {
             return response()->json(['galat' => 'Nasabah tidak ditemukan'], 404);
@@ -198,145 +170,46 @@ class MitraController extends Controller
 
     /**
      * POST /api/mitra/nasabah
-     * Registrasi Nasabah Baru oleh Mitra.
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function registrasiNasabah(Request $request)
     {
-        $request->validate([
-            'nama'     => 'required|string|max:100',
-            'telepon'  => 'required|string|unique:pengguna,telepon',
-            'email'    => 'nullable|email|unique:pengguna,email',
-            'alamat'   => 'nullable|string',
-        ]);
-
-        $email = $request->email ?: 'nasabah_' . time() . '@sirkulo.id';
-        $kataSandiDefault = 'password123';
-
-        $nasabah = User::create([
-            'nama'       => $request->nama,
-            'email'      => $email,
-            'kata_sandi' => Hash::make($kataSandiDefault),
-            'telepon'    => $request->telepon,
-            'alamat'     => $request->alamat ?? '-',
-            'saldo'      => 0,
-            'poin'       => 0,
-            'peran'      => 'NASABAH',
-        ]);
-
-        // Buat notifikasi selamat datang
-        Notification::create([
-            'id_pengguna' => $nasabah->id,
-            'judul'       => 'Selamat Datang di SIRKULO!',
-            'deskripsi'   => 'Akun nasabah Anda telah didaftarkan oleh Mitra ' . $request->user()->nama,
-            'jenis'       => 'INFO',
-            'dibuat_pada' => now(),
-        ]);
-
-        return response()->json($nasabah, 201);
+        return response()->json([
+            'galat' => 'Akses Ditolak: Pendaftaran nasabah baru dialihkan sepenuhnya ke Administrator Desa melalui Web Admin untuk menjamin keabsahan dan keamanan data kependudukan.'
+        ], 403);
     }
 
     /**
      * PUT /api/mitra/nasabah/{id}
-     * Update profil / info nasabah (nama, telepon, email, alamat).
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function updateNasabah(Request $request, $id)
     {
-        try {
-            $nasabah = User::where('id', $id)->where('peran', 'NASABAH')->first();
-            if (!$nasabah) {
-                return response()->json(['galat' => 'Data nasabah tidak ditemukan'], 404);
-            }
-
-            $request->validate([
-                'nama'    => 'required|string|max:100',
-                'telepon' => 'required|string|unique:pengguna,telepon,' . $nasabah->id,
-                'email'   => 'nullable|email|unique:pengguna,email,' . $nasabah->id,
-                'alamat'  => 'nullable|string',
-            ]);
-
-            $nasabah->nama = $request->nama;
-            $nasabah->telepon = $request->telepon;
-            if ($request->filled('email')) {
-                $nasabah->email = $request->email;
-            }
-            if ($request->has('alamat')) {
-                $nasabah->alamat = $request->alamat;
-            }
-            $nasabah->save();
-
-            return response()->json($nasabah);
-        } catch (\Exception $e) {
-            return response()->json([
-                'galat' => 'Gagal memperbarui data nasabah: ' . $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'galat' => 'Akses Ditolak: Perubahan data identitas nasabah hanya dapat dilakukan oleh Administrator Desa melalui Web Admin.'
+        ], 403);
     }
 
     /**
      * PUT /api/mitra/nasabah/{id}/password
-     * Ubah / Reset password nasabah oleh Mitra.
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function updateNasabahPassword(Request $request, $id)
     {
-        try {
-            $nasabah = User::where('id', $id)->where('peran', 'NASABAH')->first();
-            if (!$nasabah) {
-                return response()->json(['galat' => 'Data nasabah tidak ditemukan'], 404);
-            }
-
-            $request->validate([
-                'password_baru' => 'required|string|min:6',
-            ]);
-
-            $nasabah->kata_sandi = Hash::make($request->password_baru);
-            $nasabah->save();
-
-            // Buat notifikasi ke nasabah
-            Notification::create([
-                'id_pengguna' => $nasabah->id,
-                'judul'       => 'Password Berhasil Diubah',
-                'deskripsi'   => 'Password akun Anda telah diatur ulang oleh Mitra ' . $request->user()->nama,
-                'jenis'       => 'INFO',
-                'dibuat_pada' => now(),
-            ]);
-
-            return response()->json([
-                'pesan' => 'Password nasabah berhasil diperbarui',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'galat' => 'Gagal mengubah password nasabah: ' . $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'galat' => 'Akses Ditolak: Reset kata sandi nasabah adalah wewenang Administrator Desa melalui Web Admin untuk mencegah manipulasi data di lapangan.'
+        ], 403);
     }
 
     /**
      * DELETE /api/mitra/nasabah/{id}
-     * Hapus akun Nasabah secara permanen oleh Mitra.
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function hapusNasabah(Request $request, $id)
     {
-        try {
-            $nasabah = User::where('id', $id)->where('peran', 'NASABAH')->first();
-            if (!$nasabah) {
-                return response()->json(['galat' => 'Data nasabah tidak ditemukan'], 404);
-            }
-
-            $nama = $nasabah->nama;
-            // Hapus data terkait (tokens, notifikasi, transaksi)
-            DB::table('personal_access_tokens')->where('tokenable_id', $nasabah->id)->delete();
-            Notification::where('id_pengguna', $nasabah->id)->delete();
-            Transaction::where('id_pengguna', $nasabah->id)->delete();
-            $nasabah->delete();
-
-            return response()->json([
-                'pesan' => "Nasabah '{$nama}' berhasil dihapus permanen"
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'galat' => 'Gagal menghapus nasabah: ' . $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'galat' => 'Akses Ditolak: Penghapusan akun nasabah hanya dapat diproses oleh Kantor Desa melalui Web Admin untuk melindungi integritas saldo dan audit tabungan warga.'
+        ], 403);
     }
 
     /**
@@ -346,7 +219,7 @@ class MitraController extends Controller
     public function prosesSetoran(Request $request)
     {
         $request->validate([
-            'id_pengguna'       => 'required|exists:pengguna,id',
+            'id_pengguna'       => 'required|exists:nasabah,id',
             'jenis_sampah'      => 'required|string',
             'berat_kg'          => 'required|numeric|min:0.1',
             'harga_per_kg'      => 'required|integer|min:1',
@@ -355,74 +228,97 @@ class MitraController extends Controller
         ]);
 
         $mitra = $this->getMitra($request);
+
+        // Validasi: jenis_sampah harus termasuk dalam kategori yang diterima pos ini
+        $kategoriDiterima = $mitra->kategori_sampah;
+        if ($kategoriDiterima && $kategoriDiterima->isNotEmpty()) {
+            $namaKategori = $kategoriDiterima->pluck('nama')->map(fn($n) => strtolower(trim($n)));
+            $jenisDiminta = strtolower(trim($request->jenis_sampah));
+            $cocok = $namaKategori->contains(function ($n) use ($jenisDiminta) {
+                return str_contains($jenisDiminta, $n) || str_contains($n, $jenisDiminta);
+            });
+            if (!$cocok) {
+                $daftar = $kategoriDiterima->pluck('nama')->implode(', ');
+                return response()->json([
+                    'galat' => "Jenis sampah '{$request->jenis_sampah}' tidak diterima di pos ini. Pos '{$mitra->nama}' hanya menerima: {$daftar}. Hubungi Admin jika ingin menambah jenis sampah baru.",
+                ], 422);
+            }
+        }
+
         $totalNominal = (int) round($request->berat_kg * $request->harga_per_kg);
         $metode = $request->metode_pembayaran ?? 'SALDO';
         // Konversi Poin: 1 Poin = Rp 100
         $poinDidapat = ($metode === 'SALDO') ? (int) floor($totalNominal / 100) : 0;
         $noReferensi = 'SET-' . strtoupper(Str::random(8));
 
-        try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('transaksi') && !\Illuminate\Support\Facades\Schema::hasColumn('transaksi', 'keterangan')) {
-                \Illuminate\Support\Facades\Schema::table('transaksi', function (\Illuminate\Database\Schema\Blueprint $table) {
-                    $table->string('keterangan')->nullable()->after('nomor_referensi');
-                });
-            }
-        } catch (\Exception $ex) {}
-
         $transaksi = DB::transaction(function () use ($request, $mitra, $totalNominal, $poinDidapat, $noReferensi, $metode) {
+            // Lock row pengguna untuk konsistensi saldo
+            $nasabah = Nasabah::where('id', $request->id_pengguna)->lockForUpdate()->first();
+            $saldoSebelumnya = $nasabah ? $nasabah->saldo : 0;
+            $saldoBaru = ($metode === 'SALDO') ? ($saldoSebelumnya + $totalNominal) : $saldoSebelumnya;
+
             // 1. Catat Transaksi SETORAN
             $trx = Transaction::create([
-                'id_pengguna'     => $request->id_pengguna,
-                'id_mitra'        => $mitra->id,
-                'jenis'           => 'SETORAN',
-                'status'          => 'SELESAI',
-                'jumlah_total'    => $totalNominal,
-                'poin_didapat'    => $poinDidapat,
-                'nomor_referensi' => $noReferensi,
-                'keterangan'      => $request->jenis_sampah . ' ' . $request->berat_kg . ' kg' . ($metode === 'TUNAI_CASH' ? ' (Setor Tunai)' : ''),
-                'dibuat_pada'     => now(),
+                'id_pengguna'       => $request->id_pengguna,
+                'id_mitra'          => $mitra->id,
+                'jenis'             => 'SETORAN',
+                'status'            => 'SELESAI',
+                'jumlah_total'      => $totalNominal,
+                'poin_didapat'      => $poinDidapat,
+                'nomor_referensi'   => $noReferensi,
+                'keterangan'        => $request->jenis_sampah . ' ' . $request->berat_kg . ' kg' . ($metode === 'TUNAI_CASH' ? ' (Setor Tunai)' : ''),
+                'jenis_sampah'      => $request->jenis_sampah,
+                'berat_kg'          => $request->berat_kg,
+                'harga_per_kg'      => $request->harga_per_kg,
+                'metode_pembayaran' => $metode,
+                'catatan'           => $request->catatan,
+                'saldo_sebelumnya'  => $saldoSebelumnya,
+                'saldo_baru'        => $saldoBaru,
+                'dibuat_pada'       => now(),
             ]);
-
-            $nasabah = User::find($request->id_pengguna);
-            $saldoSebelumnya = $nasabah->saldo;
 
             // Jika metode SALDO -> tabungan digital bertambah rupiah & poin bertambah (1 Poin = Rp 100)
             if ($metode === 'SALDO') {
                 $nasabah->increment('saldo', $totalNominal);
                 $nasabah->update(['poin' => (int) floor($nasabah->saldo / 100)]);
             } else if ($metode === 'TUNAI_CASH') {
-                // 2. Jika Bayar Tunai Cash: Catat otomatis transaksi PENARIKAN sekalian (uang diserahkan tunai di tempat)
+                // 2. Jika Bayar Tunai Cash: Catat otomatis transaksi PENARIKAN sekalian
                 $noRefTarik = 'WD-' . strtoupper(Str::random(8));
                 Transaction::create([
-                    'id_pengguna'     => $request->id_pengguna,
-                    'id_mitra'        => $mitra->id,
-                    'jenis'           => 'PENARIKAN',
-                    'status'          => 'SELESAI',
-                    'jumlah_total'    => $totalNominal,
-                    'poin_didapat'    => 0,
-                    'nomor_referensi' => $noRefTarik,
-                    'keterangan'      => 'Tarik Tunai Langsung (' . $request->jenis_sampah . ' ' . $request->berat_kg . ' kg)',
-                    'dibuat_pada'     => now()->addSecond(), // Beri jeda 1 detik agar urutan riwayat konsisten (Setoran dulu baru Penarikan)
+                    'id_pengguna'       => $request->id_pengguna,
+                    'id_mitra'          => $mitra->id,
+                    'jenis'             => 'PENARIKAN',
+                    'status'            => 'SELESAI',
+                    'jumlah_total'      => $totalNominal,
+                    'poin_didapat'      => 0,
+                    'nomor_referensi'   => $noRefTarik,
+                    'keterangan'        => 'Tarik Tunai Langsung (' . $request->jenis_sampah . ' ' . $request->berat_kg . ' kg)',
+                    'metode_pembayaran' => 'TUNAI_CASH',
+                    'saldo_sebelumnya'  => $saldoSebelumnya,
+                    'saldo_baru'        => $saldoSebelumnya,
+                    'dibuat_pada'       => now()->addSecond(),
                 ]);
             }
 
-            // Buat notifikasi untuk nasabah
-            if ($metode === 'TUNAI_CASH') {
-                Notification::create([
-                    'id_pengguna' => $nasabah->id,
-                    'judul'       => 'Setoran & Penarikan Tunai Selesai',
-                    'deskripsi'   => "Setoran {$request->berat_kg} kg {$request->jenis_sampah} senilai Rp " . number_format($totalNominal, 0, ',', '.') . " berhasil dan uang tunai telah diserahkan di loket Pos {$mitra->nama}.",
-                    'jenis'       => 'SETORAN',
-                    'dibuat_pada' => now(),
-                ]);
-            } else {
-                Notification::create([
-                    'id_pengguna' => $nasabah->id,
-                    'judul'       => 'Setoran Sampah Berhasil',
-                    'deskripsi'   => "Setoran {$request->berat_kg} kg {$request->jenis_sampah} senilai Rp " . number_format($totalNominal, 0, ',', '.') . " (Masuk Saldo) berhasil (+ " . number_format($poinDidapat, 0, ',', '.') . " Poin).",
-                    'jenis'       => 'SETORAN',
-                    'dibuat_pada' => now(),
-                ]);
+            // 1. Buat notifikasi untuk nasabah setelah setoran diproses
+            \App\Http\Controllers\Api\NotificationController::kirim(
+                $nasabah->id,
+                $metode === 'TUNAI_CASH' ? 'Setoran & Penarikan Tunai Selesai' : 'Setoran Sampah Berhasil ✅',
+                $metode === 'TUNAI_CASH'
+                    ? "Setoran {$request->berat_kg} kg {$request->jenis_sampah} senilai Rp " . number_format($totalNominal, 0, ',', '.') . " berhasil — uang tunai telah diserahkan di loket {$mitra->nama}."
+                    : "Setoran {$request->berat_kg} kg {$request->jenis_sampah} sebesar Rp " . number_format($totalNominal, 0, ',', '.') . " berhasil masuk ke saldo Anda (+{$poinDidapat} Poin). Pos: {$mitra->nama}.",
+                'SETORAN'
+            );
+
+            // 2. Buat notifikasi untuk petugas mitra yang memproses di loket
+            $petugasUser = $request->user();
+            if ($petugasUser && $petugasUser->id !== $nasabah->id) {
+                \App\Http\Controllers\Api\NotificationController::kirim(
+                    $petugasUser->id,
+                    'Setoran Sampah Dicatat ✅',
+                    "Setoran {$request->berat_kg} kg {$request->jenis_sampah} senilai Rp " . number_format($totalNominal, 0, ',', '.') . " ({$metode}) untuk nasabah {$nasabah->nama} berhasil dicatat di {$mitra->nama}.",
+                    'SETORAN'
+                );
             }
 
             return [
@@ -434,7 +330,7 @@ class MitraController extends Controller
         });
 
         return response()->json([
-            'pesan'             => 'Setoran berhasil dicatat',
+            'pesan'             => 'Setoran sampah berhasil diproses',
             'transaksi'         => $transaksi['transaksi'],
             'nasabah'           => $transaksi['nasabah'],
             'jenis_sampah'      => $request->jenis_sampah,
@@ -453,82 +349,107 @@ class MitraController extends Controller
 
     /**
      * POST /api/mitra/cairkan-saldo-nasabah
-     * Tarik Tunai Cash Saldo Nasabah oleh Mitra di Tempat.
+     * Tarik Tunai Cash Saldo Nasabah oleh Mitra di Loket (Concurrency Safe with lockForUpdate).
      */
     public function cairkanSaldoNasabah(Request $request)
     {
         $request->validate([
-            'id_pengguna' => 'required|exists:pengguna,id',
-            'nominal'     => 'required|integer|min:1000',
+            'id_pengguna' => 'required|exists:nasabah,id',
+            'nominal'     => 'required|integer|min:5000',
             'catatan'     => 'nullable|string',
+        ], [
+            'nominal.min' => 'Minimal penarikan saldo adalah Rp 5.000',
         ]);
-
-        $nasabah = User::find($request->id_pengguna);
-        if ($nasabah->saldo < $request->nominal) {
-            return response()->json(['galat' => 'Saldo nasabah tidak mencukupi (Saldo: Rp ' . number_format($nasabah->saldo, 0, ',', '.') . ')'], 400);
-        }
 
         $mitra = $this->getMitra($request);
         $noReferensi = 'TARIK-' . strtoupper(Str::random(8));
 
-        $res = DB::transaction(function () use ($request, $nasabah, $mitra, $noReferensi) {
-            $saldoSebelumnya = $nasabah->saldo;
-            $poinSebelumnya = $nasabah->poin;
-            $nasabah->decrement('saldo', $request->nominal);
+        try {
+            $res = DB::transaction(function () use ($request, $mitra, $noReferensi) {
+                // Lock row pengguna untuk mencegah double spend saat penarikan serentak
+                $nasabah = Nasabah::where('id', $request->id_pengguna)->lockForUpdate()->first();
+                if (!$nasabah || $nasabah->saldo < $request->nominal) {
+                    throw new \Exception('Saldo nasabah tidak mencukupi (Saldo: Rp ' . number_format($nasabah?->saldo ?? 0, 0, ',', '.') . ')');
+                }
 
-            // Pengurangan poin (1 Poin = Rp 100)
-            $poinDipotong = (int) floor($request->nominal / 100);
-            $nasabah->update(['poin' => (int) floor($nasabah->saldo / 100)]);
+                $saldoSebelumnya = $nasabah->saldo;
+                $poinSebelumnya = $nasabah->poin;
+                $nasabah->decrement('saldo', $request->nominal);
 
-            $trx = Transaction::create([
-                'id_pengguna'     => $nasabah->id,
-                'id_mitra'        => $mitra->id,
-                'jenis'           => 'PENARIKAN',
-                'status'          => 'SELESAI',
-                'jumlah_total'    => $request->nominal,
-                'poin_didapat'    => -$poinDipotong,
-                'nomor_referensi' => $noReferensi,
-                'dibuat_pada'     => now(),
+                // Pengurangan poin (1 Poin = Rp 100)
+                $poinDipotong = (int) floor($request->nominal / 100);
+                $nasabah->update(['poin' => (int) floor($nasabah->saldo / 100)]);
+
+                $trx = Transaction::create([
+                    'id_pengguna'       => $nasabah->id,
+                    'id_mitra'          => $mitra->id,
+                    'jenis'             => 'PENARIKAN',
+                    'status'            => 'SELESAI',
+                    'jumlah_total'      => $request->nominal,
+                    'poin_didapat'      => -$poinDipotong,
+                    'nomor_referensi'   => $noReferensi,
+                    'keterangan'        => $request->catatan ?: 'Tarik Tunai di Loket Pos',
+                    'metode_pembayaran' => 'TUNAI_CASH',
+                    'catatan'           => $request->catatan,
+                    'saldo_sebelumnya'  => $saldoSebelumnya,
+                    'saldo_baru'        => $nasabah->fresh()->saldo,
+                    'dibuat_pada'       => now(),
+                ]);
+
+                // 1. Notifikasi untuk nasabah
+                \App\Http\Controllers\Api\NotificationController::kirim(
+                    $nasabah->id,
+                    'Tarik Tunai Berhasil 💰',
+                    'Penarikan saldo Rp ' . number_format($request->nominal, 0, ',', '.') . ' di ' . $mitra->nama . ' berhasil. Saldo baru: Rp ' . number_format($nasabah->saldo, 0, ',', '.') . " (-{$poinDipotong} Poin).",
+                    'PENARIKAN'
+                );
+
+                // 2. Notifikasi untuk petugas mitra yang memproses
+                $petugasUser = $request->user();
+                if ($petugasUser && $petugasUser->id !== $nasabah->id) {
+                    \App\Http\Controllers\Api\NotificationController::kirim(
+                        $petugasUser->id,
+                        'Pencairan Tunai Berhasil 💰',
+                        'Penarikan tunai Rp ' . number_format($request->nominal, 0, ',', '.') . " untuk nasabah {$nasabah->nama} berhasil diserahkan di loket {$mitra->nama}.",
+                        'PENARIKAN'
+                    );
+                }
+
+                return [
+                    'transaksi'        => $trx,
+                    'nasabah'          => $nasabah->fresh(),
+                    'saldo_sebelumnya' => $saldoSebelumnya,
+                    'saldo_baru'       => $nasabah->fresh()->saldo,
+                    'poin_sebelumnya'  => $poinSebelumnya,
+                    'poin_baru'        => $nasabah->fresh()->poin,
+                    'poin_dipotong'    => $poinDipotong,
+                ];
+            });
+
+            return response()->json([
+                'pesan'            => 'Penarikan tunai cash nasabah berhasil',
+                'transaksi'        => $res['transaksi'],
+                'nasabah'          => $res['nasabah'],
+                'nominal'          => $request->nominal,
+                'saldo_sebelumnya' => $res['saldo_sebelumnya'],
+                'saldo_baru'       => $res['saldo_baru'],
+                'poin_sebelumnya'  => $res['poin_sebelumnya'],
+                'poin_baru'        => $res['poin_baru'],
+                'poin_dipotong'    => $res['poin_dipotong'],
+                'nomor_referensi'  => $noReferensi,
+                'pos'              => $mitra->nama,
+                'waktu'            => now()->translatedFormat('d F Y, H:i') . ' WIB',
             ]);
-
-            Notification::create([
-                'id_pengguna' => $nasabah->id,
-                'judul'       => 'Tarik Tunai Berhasil',
-                'deskripsi'   => 'Penarikan tunai sebesar Rp ' . number_format($request->nominal, 0, ',', '.') . ' di ' . $mitra->nama . " telah selesai (-" . number_format($poinDipotong, 0, ',', '.') . " Poin).",
-                'jenis'       => 'PENARIKAN',
-                'dibuat_pada' => now(),
-            ]);
-
-            return [
-                'transaksi'        => $trx,
-                'nasabah'          => $nasabah->fresh(),
-                'saldo_sebelumnya' => $saldoSebelumnya,
-                'saldo_baru'       => $nasabah->fresh()->saldo,
-                'poin_sebelumnya'  => $poinSebelumnya,
-                'poin_baru'        => $nasabah->fresh()->poin,
-                'poin_dipotong'    => $poinDipotong,
-            ];
-        });
-
-        return response()->json([
-            'pesan'            => 'Penarikan tunai cash nasabah berhasil',
-            'transaksi'        => $res['transaksi'],
-            'nasabah'          => $res['nasabah'],
-            'nominal'          => $request->nominal,
-            'saldo_sebelumnya' => $res['saldo_sebelumnya'],
-            'saldo_baru'       => $res['saldo_baru'],
-            'poin_sebelumnya'  => $res['poin_sebelumnya'],
-            'poin_baru'        => $res['poin_baru'],
-            'poin_dipotong'    => $res['poin_dipotong'],
-            'nomor_referensi'  => $noReferensi,
-            'pos'              => $mitra->nama,
-            'waktu'            => now()->translatedFormat('d F Y, H:i') . ' WIB',
-        ], 201);
+        } catch (\Exception $e) {
+            return response()->json(['galat' => $e->getMessage()], 400);
+        }
     }
 
     /**
      * POST /api/mitra/penarikan
      * Pengajuan Penarikan Saldo Pos oleh Mitra.
+     * FIX #4: Menggunakan saldo kas bersih pos (total setoran - total penarikan),
+     * bukan saldo akun pribadi petugas yang selalu 0.
      */
     public function ajukanPenarikan(Request $request)
     {
@@ -539,17 +460,32 @@ class MitraController extends Controller
             'keterangan'  => 'nullable|string',
         ]);
 
-        $user = $request->user();
-        if ($user->saldo < $request->nominal) {
-            return response()->json(['galat' => 'Saldo pos tidak mencukupi'], 400);
+        $mitra = $this->getMitra($request);
+        $user  = $request->user();
+
+        // FIX #4: Hitung kas bersih pos dari total setoran - total penarikan bulan ini
+        // Ini mencerminkan dana yang tersedia di pos untuk ditarik ke rekening pengurus
+        $startOfMonth = now()->startOfMonth();
+        $totalSetoranPos = Transaction::where('id_mitra', $mitra->id)
+            ->where('jenis', 'SETORAN')
+            ->where('dibuat_pada', '>=', $startOfMonth)
+            ->sum('jumlah_total');
+        $totalPenarikanPos = Transaction::where('id_mitra', $mitra->id)
+            ->where('jenis', 'PENARIKAN')
+            ->where('dibuat_pada', '>=', $startOfMonth)
+            ->sum('jumlah_total');
+        $kasBersihPos = $totalSetoranPos - $totalPenarikanPos;
+
+        if ($kasBersihPos < $request->nominal) {
+            return response()->json([
+                'galat'       => 'Saldo kas pos tidak mencukupi. Kas bersih pos bulan ini: Rp ' . number_format(max(0, $kasBersihPos), 0, ',', '.'),
+                'kas_bersih'  => max(0, $kasBersihPos),
+            ], 400);
         }
 
-        $mitra = $this->getMitra($request);
         $noReferensi = 'TRF-' . strtoupper(Str::random(8));
 
         $trx = DB::transaction(function () use ($request, $user, $mitra, $noReferensi) {
-            $user->decrement('saldo', $request->nominal);
-
             return Transaction::create([
                 'id_pengguna'     => $user->id,
                 'id_mitra'        => $mitra->id,
@@ -558,6 +494,7 @@ class MitraController extends Controller
                 'jumlah_total'    => $request->nominal,
                 'poin_didapat'    => 0,
                 'nomor_referensi' => $noReferensi,
+                'keterangan'      => $request->keterangan ?: 'Transfer ke ' . $request->metode . ' ' . $request->no_rekening,
                 'dibuat_pada'     => now(),
             ]);
         });
@@ -569,6 +506,8 @@ class MitraController extends Controller
             'no_rekening'     => $request->no_rekening,
             'status'          => 'Menunggu Persetujuan Admin',
             'nomor_referensi' => $noReferensi,
+            'pos'             => $mitra->nama,
+            'kas_bersih_sisa' => $kasBersihPos - $request->nominal,
             'waktu'           => now()->format('d M Y H:i'),
         ], 201);
     }
@@ -580,7 +519,7 @@ class MitraController extends Controller
     public function riwayatTransaksi(Request $request)
     {
         $mitra = $this->getMitra($request);
-        $query = Transaction::with('pengguna')->where('id_mitra', $mitra->id);
+        $query = Transaction::with(['pengguna', 'mitra'])->where('id_mitra', $mitra->id);
 
         if ($request->has('jenis') && in_array($request->jenis, ['SETORAN', 'PENARIKAN'])) {
             $query->where('jenis', $request->jenis);
@@ -629,13 +568,67 @@ class MitraController extends Controller
             ->get();
 
         $setoran   = $allTranx->where('jenis', 'SETORAN');
-        $penarikan = $allTranx->where('jenis', 'PENARIKAN');
+        $penarikan = $allTranx->whereIn('jenis', ['PENARIKAN', 'CAIRKAN']);
 
         $totalSetoran   = (int) $setoran->sum('jumlah_total');
         $totalPenarikan = (int) $penarikan->sum('jumlah_total');
         $jumlahTransaksi = $allTranx->count();
         $jumlahSetoran   = $setoran->count();
         $jumlahPenarikan = $penarikan->count();
+
+        // ── Rincian Resmi per Kategori (untuk PDF Laporan) ─────────────
+        $rincianKategori = [];
+        $totalBeratKg    = 0.0;
+        $totalNilaiSampah = 0;
+
+        foreach ($setoran as $t) {
+            $ket = $t->keterangan ?? 'Campuran 1.0 kg';
+            $kg  = 0.0;
+            if (preg_match('/([\.\d]+)\s*kg/i', $ket, $kgM)) {
+                $kg = (float) $kgM[1];
+            } else {
+                $kg = $t->jumlah_total > 0 ? round($t->jumlah_total / 2500, 1) : 1.0;
+            }
+            preg_match('/^([^0-9]+)/u', $ket, $nmM);
+            $namaSampah = trim(rtrim($nmM[1] ?? 'Sampah Campuran', ' -'));
+            if (empty($namaSampah)) $namaSampah = 'Sampah Daur Ulang';
+
+            $totalBeratKg    += $kg;
+            $totalNilaiSampah += (int) $t->jumlah_total;
+
+            if (!isset($rincianKategori[$namaSampah])) {
+                $rincianKategori[$namaSampah] = [
+                    'nama'      => $namaSampah,
+                    'total_kg'  => 0.0,
+                    'total_rp'  => 0,
+                    'transaksi' => 0,
+                ];
+            }
+            $rincianKategori[$namaSampah]['total_kg']  += $kg;
+            $rincianKategori[$namaSampah]['total_rp']  += (int) $t->jumlah_total;
+            $rincianKategori[$namaSampah]['transaksi']++;
+        }
+        uasort($rincianKategori, fn($a, $b) => $b['total_kg'] <=> $a['total_kg']);
+
+        $totalTonase   = round($totalBeratKg / 1000, 3);
+        $saldoKasBersih = $totalNilaiSampah - $totalPenarikan;
+
+        // Jumlah nasabah aktif pada pos ini dalam periode ini
+        $nasabahAktif = $allTranx->pluck('id_pengguna')->filter()->unique()->count();
+
+        // Nomor laporan resmi & format tanggal Indonesia
+        $namaBulanIndo = [
+            1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+            5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+            9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+        ];
+        $romawiBulan = [1=>'I',2=>'II',3=>'III',4=>'IV',5=>'V',6=>'VI',
+                        7=>'VII',8=>'VIII',9=>'IX',10=>'X',11=>'XI',12=>'XII'];
+        $nomorLaporan = 'LPJ/SRKL/' . ($romawiBulan[$bulanDipilih] ?? 'I') . '/' . $tahunDipilih;
+        $namaBulan    = $namaBulanIndo[$bulanDipilih] ?? 'Januari';
+
+        $now = Carbon::now();
+        $tanggalCetak = $now->format('d') . ' ' . ($namaBulanIndo[(int)$now->format('n')] ?? '') . ' ' . $now->format('Y');
 
         // ── Rincian per Jenis Sampah & Perhitungan Margin Pengepul ──────
         $allCategories = TrashCategory::all();
@@ -695,7 +688,8 @@ class MitraController extends Controller
                 );
             }
         }
-        arsort($rincianSampah); // Urutkan dari terbesar
+        // FIX #7: Gunakan uasort (bukan arsort) untuk mengurutkan berdasarkan field total_kg
+        uasort($rincianSampah, fn($a, $b) => $b['total_kg'] <=> $a['total_kg']);
 
         $persentaseTotalMargin = ($totalSetoran > 0)
             ? (int) round(($totalMarginUntung / $totalSetoran) * 100)
@@ -791,7 +785,7 @@ class MitraController extends Controller
             }
         } else {
             // 12 Bulan dalam Tahun yang dipilih (Jan - Des)
-            $namaBulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            $listSingkatanBulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
             for ($m = 1; $m <= 12; $m++) {
                 $startM = Carbon::createFromDate($tahunDipilih, $m, 1)->startOfMonth();
                 $endM = Carbon::createFromDate($tahunDipilih, $m, 1)->endOfMonth();
@@ -805,8 +799,8 @@ class MitraController extends Controller
                     ->whereBetween('dibuat_pada', [$startM, $endM])
                     ->sum('jumlah_total');
                 $chartData[] = [
-                    'tanggal'   => $namaBulan[$m - 1],
-                    'hari'      => $namaBulan[$m - 1],
+                    'tanggal'   => $listSingkatanBulan[$m - 1],
+                    'hari'      => $listSingkatanBulan[$m - 1],
                     'total'     => (int) $monthSetoran,
                     'penarikan' => (int) $monthPenarikan,
                 ];
@@ -831,9 +825,9 @@ class MitraController extends Controller
         return response()->json([
             'periode'            => $periode,
             'pos'                => $mitra->nama,
-            'total_setoran'      => (int) $totalSetoran,       // Total dibayarkan ke nasabah
-            'total_pengepul'     => (int) $totalPengepul,      // Estimasi penjualan ke pengepul
-            'total_margin'       => (int) $totalMarginUntung,  // Estimasi keuntungan kotor pos
+            'total_setoran'      => (int) $totalSetoran,        // Total dibayarkan ke nasabah
+            'total_pengepul'     => (int) $totalPengepul,       // Estimasi penjualan ke pengepul
+            'total_margin'       => (int) $totalMarginUntung,   // Estimasi keuntungan kotor pos
             'persentase_margin'  => (int) $persentaseTotalMargin,
             'total_penarikan'    => (int) $totalPenarikan,
             'jumlah_transaksi'   => $jumlahTransaksi,
@@ -842,6 +836,17 @@ class MitraController extends Controller
             'chart_data'         => $chartData,
             'rincian_sampah'     => array_values($rincianSampah),
             'rincian'            => $rincianTerbaru,
+            // ── Kolom tambahan untuk PDF Laporan Resmi ──────────────
+            'total_berat_kg'     => round($totalBeratKg, 2),
+            'total_tonase'       => $totalTonase,
+            'total_nilai_sampah' => (int) $totalNilaiSampah,
+            'total_penarikan_rp' => (int) $totalPenarikan,
+            'saldo_kas_bersih'   => (int) $saldoKasBersih,
+            'total_nasabah_aktif'=> (int) $nasabahAktif,
+            'nomor_laporan'      => $nomorLaporan,
+            'nama_bulan'         => $namaBulan,
+            'tanggal_cetak'      => $tanggalCetak,
+            'rincian_kategori'   => array_values($rincianKategori),
         ]);
     }
 
@@ -863,11 +868,15 @@ class MitraController extends Controller
         $mitra = $this->getMitra($request);
 
         // Update tabel mitra
-        $mitra->update([
+        $mitraUpdate = [
             'nama'     => $request->nama_pos,
             'alamat'   => $request->alamat,
             'jam_buka' => $request->jam_buka,
-        ]);
+        ];
+        if (!empty($request->pengelola)) {
+            $mitraUpdate['pengelola'] = $request->pengelola;
+        }
+        $mitra->update($mitraUpdate);
 
         // Update tabel pengguna (pengelola & telepon)
         $userUpdate = [];
@@ -896,95 +905,80 @@ class MitraController extends Controller
 
     /**
      * POST /api/mitra/tambah-pos
-     * Daftarkan Pos Cabang Bank Sampah baru. Pos langsung dimiliki oleh Mitra yang sedang login.
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function createPosBranch(Request $request)
     {
-        try {
-            $request->validate([
-                'nama_pos'  => 'required|string',
-                'alamat'    => 'required|string',
-                'jam_buka'  => 'required|string',
-                'pengelola' => 'nullable|string',
-                'telepon'   => 'nullable|string',
-            ]);
-
-            $user = $request->user();
-
-            // Cari user Mitra — bisa dari token atau default mitrasirkulo
-            if (!$user) {
-                $user = User::where('email', 'mitrasirkulo@gmail.com')->first();
-            }
-            if (!$user) {
-                return response()->json(['galat' => 'Tidak ada sesi Mitra aktif'], 401);
-            }
-
-            // Auto-drop unique constraint pada id_pengguna di tabel mitra
-            // agar satu akun Mitra bisa memiliki lebih dari satu Pos.
-            try {
-                $driver = \DB::getDriverName();
-                if ($driver === 'mysql' || $driver === 'mariadb') {
-                    // Cek apakah constraint masih ada
-                    $hasUnique = \DB::select(
-                        "SELECT COUNT(*) as cnt FROM information_schema.STATISTICS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                         AND TABLE_NAME = 'mitra'
-                         AND INDEX_NAME = 'mitra_id_pengguna_unique'"
-                    );
-                    if (!empty($hasUnique) && $hasUnique[0]->cnt > 0) {
-                        \DB::statement('ALTER TABLE mitra DROP INDEX mitra_id_pengguna_unique');
-                    }
-                } elseif ($driver === 'sqlite') {
-                    // SQLite: hanya bisa recreate table — skip, sudah handle lewat migration
-                }
-            } catch (\Exception $ex) {
-                // Ignore jika constraint sudah tidak ada
-            }
-
-            $newPartner = Partner::create([
-                'id_pengguna' => $user->id,
-                'nama'        => $request->nama_pos,
-                'alamat'      => $request->alamat,
-                'lintang'     => -6.9932,
-                'bujur'       => 110.4203,
-                'jam_buka'    => $request->jam_buka,
-            ]);
-
-            return response()->json([
-                'pesan' => 'Pos Bank Sampah ' . $newPartner->nama . ' berhasil didaftarkan!',
-                'pos'   => $newPartner
-            ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'galat'  => 'Validasi gagal',
-                'detail' => $e->errors()
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'galat'  => 'Gagal membuat pos: ' . $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'galat' => 'Akses Ditolak: Pendaftaran dan pembukaan pos bank sampah baru hanya dapat disahkan oleh Administrator Desa melalui Web Admin.'
+        ], 403);
     }
 
     /**
      * DELETE /api/mitra/pos/{id}
-     * Hapus Pos Bank Sampah dengan aman.
+     * Ditolak: Wewenang eksklusif Administrator Desa via Web Admin.
      */
     public function destroyPos(Request $request, $id)
     {
-        $partner = Partner::find($id);
-        if (!$partner) {
-            return response()->json(['galat' => 'Pos Bank Sampah tidak ditemukan'], 404);
-        }
+        return response()->json([
+            'galat' => 'Akses Ditolak: Penutupan atau penghapusan pos bank sampah hanya dapat dilakukan oleh Administrator Desa melalui Web Admin.'
+        ], 403);
+    }
 
-        $namaPos = $partner->nama;
-        // Hapus transaksi terkait pos jika ada
-        Transaction::where('id_mitra', $id)->delete();
-        $partner->delete();
+    /**
+     * GET /api/mitra/ringkasan-harian
+     * Ringkasan operasional hari ini untuk tampilan utama app mitra.
+     */
+    public function ringkasanHarian(Request $request)
+    {
+        $mitra  = $this->getMitra($request);
+        $today  = now()->startOfDay();
+        $akhir  = now()->endOfDay();
+
+        // FIX #5: Satu query saja dengan eager load 'pengguna', menghindari query ke-2 di bawah
+        $transaksiHariIni = Transaction::with(['pengguna'])
+            ->where('id_mitra', $mitra->id)
+            ->whereBetween('dibuat_pada', [$today, $akhir])
+            ->orderByDesc('dibuat_pada')
+            ->get();
+
+        $setoran   = $transaksiHariIni->where('jenis', 'SETORAN');
+        $penarikan = $transaksiHariIni->where('jenis', 'PENARIKAN');
+
+        // Komposisi sampah hari ini
+        $komposisi = $setoran->map(function ($t) {
+            preg_match('/^([^0-9]+)/u', $t->keterangan ?? '', $m);
+            return trim($m[1] ?? 'Lainnya');
+        })->countBy()->sortByDesc(fn($v) => $v)->take(5)->toArray();
+
+        // FIX #5: Gunakan koleksi yang sudah ada, tidak perlu query ulang
+        $transaksiTerakhir = $transaksiHariIni->take(10)->map(fn($t) => [
+            'id'              => $t->id,
+            'jenis'           => $t->jenis,
+            'jumlah_total'    => $t->jumlah_total,
+            'keterangan'      => $t->keterangan,
+            'nama_nasabah'    => $t->pengguna?->nama ?? '-',
+            'nomor_referensi' => $t->nomor_referensi,
+            'dibuat_pada'     => $t->dibuat_pada,
+        ]);
 
         return response()->json([
-            'pesan' => "Pos Bank Sampah '{$namaPos}' berhasil dihapus permanen"
+            'sukses'             => true,
+            'pos'                => [
+                'id'       => $mitra->id,
+                'nama'     => $mitra->nama,
+                'alamat'   => $mitra->alamat,
+                'jam_buka' => $mitra->jam_buka,
+            ],
+            'tanggal'            => now()->setTimezone('Asia/Jakarta')->translatedFormat('l, d F Y'),
+            'setoran_count'      => $setoran->count(),
+            'setoran_nominal'    => (int) $setoran->sum('jumlah_total'),
+            'penarikan_count'    => $penarikan->count(),
+            'penarikan_nominal'  => (int) $penarikan->sum('jumlah_total'),
+            'total_transaksi'    => $transaksiHariIni->count(),
+            'poin_diberikan'     => (int) $setoran->sum('poin_didapat'),
+            'komposisi_sampah'   => $komposisi,
+            'transaksi_terakhir' => $transaksiTerakhir,
         ]);
     }
 }
